@@ -1,0 +1,302 @@
+---
+title: Chat Sync API
+description: Sync messages between Hazel Chat and external platforms like Slack and Discord
+---
+
+The Chat Sync API allows you to bidirectionally sync messages between Hazel Chat and external chat platforms (Slack, Discord, etc.). This enables seamless communication across different platforms.
+
+## Overview
+
+Chat Sync consists of two main resources:
+
+- **Connections** - Links to external workspaces (e.g., a Slack workspace)
+- **Channel Links** - Mappings between Hazel channels and external channels
+
+## Sync Directions
+
+Channel links support three sync directions:
+
+- `both` - Bidirectional sync (default)
+- `inbound` - Only sync messages from external platform to Hazel
+- `outbound` - Only sync messages from Hazel to external platform
+
+## Supported Providers
+
+- Slack
+- Discord
+- Microsoft Teams (coming soon)
+
+## Connection Management
+
+### Create Connection
+
+Create a connection to an external workspace.
+
+```typescript
+import { chatSync } from "@hazel/domain/rpc"
+
+const result = await chatSync.connection.create({
+  organizationId: "org_123",
+  provider: "slack",
+  externalWorkspaceId: "T12345678",
+  externalWorkspaceName: "Acme Corp",
+  integrationConnectionId: "int_conn_123", // Optional OAuth connection
+  settings: {
+    syncThreads: true,
+    syncReactions: true
+  }
+})
+```
+
+<ParamField path="organizationId" type="OrganizationId" required>
+  The organization to create the connection for
+</ParamField>
+
+<ParamField path="provider" type="'slack' | 'discord' | 'teams'" required>
+  The external platform provider
+</ParamField>
+
+<ParamField path="externalWorkspaceId" type="string" required>
+  The workspace ID on the external platform
+</ParamField>
+
+<ParamField path="externalWorkspaceName" type="string">
+  Display name for the external workspace
+</ParamField>
+
+<ParamField path="integrationConnectionId" type="IntegrationConnectionId">
+  Associated OAuth integration connection
+</ParamField>
+
+<ParamField path="settings" type="Record<string, unknown>">
+  Provider-specific sync settings
+</ParamField>
+
+<ParamField path="metadata" type="Record<string, unknown>">
+  Additional metadata for the connection
+</ParamField>
+
+**Response**
+
+<ResponseField name="data" type="ChatSyncConnection">
+  The created connection
+  <Expandable title="ChatSyncConnection">
+    <ResponseField name="id" type="SyncConnectionId">
+      Unique connection identifier
+    </ResponseField>
+    <ResponseField name="organizationId" type="OrganizationId">
+      Parent organization
+    </ResponseField>
+    <ResponseField name="provider" type="string">
+      Platform provider
+    </ResponseField>
+    <ResponseField name="externalWorkspaceId" type="string">
+      External workspace ID
+    </ResponseField>
+    <ResponseField name="externalWorkspaceName" type="string">
+      External workspace display name
+    </ResponseField>
+    <ResponseField name="isActive" type="boolean">
+      Whether the connection is active
+    </ResponseField>
+    <ResponseField name="settings" type="object">
+      Sync settings
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="transactionId" type="TransactionId">
+  Transaction ID for optimistic updates
+</ResponseField>
+
+**Errors**
+
+- `ChatSyncConnectionExistsError` - Connection already exists for this workspace
+- `ChatSyncIntegrationNotConnectedError` - Integration not connected
+- `UnauthorizedError` - Not authorized
+- `InternalServerError` - Server error
+
+### List Connections
+
+List all sync connections for an organization.
+
+```typescript
+const connections = await chatSync.connection.list({
+  organizationId: "org_123"
+})
+```
+
+### Delete Connection
+
+Delete a sync connection and all its channel links.
+
+```typescript
+await chatSync.connection.delete({
+  syncConnectionId: "sync_conn_123"
+})
+```
+
+<Warning>
+  Deleting a connection will permanently remove all channel links. Messages that have already been synced will not be deleted.
+</Warning>
+
+## Channel Link Management
+
+### Create Channel Link
+
+Link a Hazel channel to an external channel.
+
+```typescript
+const link = await chatSync.channelLink.create({
+  syncConnectionId: "sync_conn_123",
+  hazelChannelId: "ch_456",
+  externalChannelId: "C12345678",
+  externalChannelName: "#general",
+  direction: "both",
+  settings: {
+    syncPins: true,
+    mentionMapping: true
+  }
+})
+```
+
+<ParamField path="syncConnectionId" type="SyncConnectionId" required>
+  The parent sync connection
+</ParamField>
+
+<ParamField path="hazelChannelId" type="ChannelId" required>
+  The Hazel channel to sync
+</ParamField>
+
+<ParamField path="externalChannelId" type="ExternalChannelId" required>
+  The external channel ID
+</ParamField>
+
+<ParamField path="externalChannelName" type="string">
+  Display name of the external channel
+</ParamField>
+
+<ParamField path="direction" type="'both' | 'inbound' | 'outbound'">
+  Sync direction (default: `both`)
+</ParamField>
+
+<ParamField path="settings" type="Record<string, unknown>">
+  Channel-specific sync settings
+</ParamField>
+
+### List Channel Links
+
+List all channel links for a connection.
+
+```typescript
+const links = await chatSync.channelLink.list({
+  syncConnectionId: "sync_conn_123"
+})
+```
+
+### Update Channel Link
+
+Update a channel link's settings or direction.
+
+```typescript
+const updated = await chatSync.channelLink.update({
+  syncChannelLinkId: "link_789",
+  direction: "inbound",
+  isActive: true
+})
+```
+
+### Delete Channel Link
+
+Remove a channel link to stop syncing.
+
+```typescript
+await chatSync.channelLink.delete({
+  syncChannelLinkId: "link_789"
+})
+```
+
+## Use Cases
+
+### Cross-Platform Teams
+
+Sync channels between Hazel and Slack for teams using both platforms:
+
+```typescript
+// Connect to Slack workspace
+const slackConnection = await chatSync.connection.create({
+  organizationId: "org_123",
+  provider: "slack",
+  externalWorkspaceId: "T12345678",
+  externalWorkspaceName: "Engineering Team"
+})
+
+// Link general channels
+await chatSync.channelLink.create({
+  syncConnectionId: slackConnection.data.id,
+  hazelChannelId: "ch_general",
+  externalChannelId: "C987654321",
+  direction: "both"
+})
+```
+
+### Inbound Announcements
+
+Sync announcements from Slack to Hazel in read-only mode:
+
+```typescript
+await chatSync.channelLink.create({
+  syncConnectionId: slackConnection.data.id,
+  hazelChannelId: "ch_announcements",
+  externalChannelId: "C111111111",
+  direction: "inbound" // Only Slack → Hazel
+})
+```
+
+### Discord Community Bridge
+
+Connect Discord community to Hazel for support:
+
+```typescript
+const discordConnection = await chatSync.connection.create({
+  organizationId: "org_123",
+  provider: "discord",
+  externalWorkspaceId: "987654321098765432",
+  externalWorkspaceName: "Community Server"
+})
+
+await chatSync.channelLink.create({
+  syncConnectionId: discordConnection.data.id,
+  hazelChannelId: "ch_support",
+  externalChannelId: "123456789012345678",
+  direction: "both"
+})
+```
+
+## Best Practices
+
+<Tip>
+  Use descriptive connection names to easily identify which external workspace each connection represents.
+</Tip>
+
+<Warning>
+  Be careful with bidirectional sync to avoid message loops. Test with a single channel first before syncing multiple channels.
+</Warning>
+
+<Info>
+  Sync typically happens within 1-2 seconds. Large message backlogs may take longer to sync initially.
+</Info>
+
+## Related APIs
+
+<CardGroup cols={2}>
+  <Card title="Channels API" icon="comments" href="/api/channels">
+    Manage Hazel channels
+  </Card>
+  <Card title="Messages API" icon="message" href="/api/messages">
+    Send and manage messages
+  </Card>
+  <Card title="Organizations API" icon="building" href="/api/organizations">
+    Manage organizations
+  </Card>
+</CardGroup>

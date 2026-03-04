@@ -129,7 +129,9 @@
               "api/custom-emojis",
               "api/attachments",
               "api/github-subscriptions",
-              "api/rss-subscriptions"
+              "api/rss-subscriptions",
+              "api/chat-sync",
+              "api/integration-requests"
             ]
           }
         ]

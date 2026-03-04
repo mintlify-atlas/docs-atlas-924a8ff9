@@ -1,0 +1,192 @@
+---
+title: Integration Requests API
+description: Submit requests for new integrations to the Hazel team
+---
+
+The Integration Requests API allows users to submit requests for integrations that are not yet available in Hazel Chat. This helps the team prioritize and build integrations that the community needs.
+
+## Overview
+
+Organizations can submit integration requests to express interest in connecting Hazel Chat with external platforms and services. The Hazel team reviews these requests to prioritize development.
+
+## Create Integration Request
+
+Submit a new integration request.
+
+```typescript
+import { integrationRequest } from "@hazel/domain/rpc"
+
+const request = await integrationRequest.create({
+  organizationId: "org_123",
+  integrationName: "Jira",
+  integrationUrl: "https://www.atlassian.com/software/jira",
+  description: "We need Jira integration to track issues and link them to chat discussions"
+})
+```
+
+<ParamField path="organizationId" type="OrganizationId" required>
+  The organization submitting the request
+</ParamField>
+
+<ParamField path="integrationName" type="string" required>
+  Name of the requested integration (e.g., "Jira", "Figma", "Linear")
+</ParamField>
+
+<ParamField path="integrationUrl" type="string">
+  URL to the integration's website or documentation
+</ParamField>
+
+<ParamField path="description" type="string">
+  Detailed description of how you want to use this integration and what features you need
+</ParamField>
+
+**Response**
+
+<ResponseField name="data" type="IntegrationRequest">
+  The created integration request
+  <Expandable title="IntegrationRequest">
+    <ResponseField name="id" type="IntegrationRequestId">
+      Unique request identifier
+    </ResponseField>
+    <ResponseField name="organizationId" type="OrganizationId">
+      Organization that submitted the request
+    </ResponseField>
+    <ResponseField name="integrationName" type="string">
+      Name of the requested integration
+    </ResponseField>
+    <ResponseField name="integrationUrl" type="string">
+      Integration website URL
+    </ResponseField>
+    <ResponseField name="description" type="string">
+      Request description
+    </ResponseField>
+    <ResponseField name="status" type="string">
+      Request status (pending, reviewing, planned, implemented, declined)
+    </ResponseField>
+    <ResponseField name="createdAt" type="Date">
+      When the request was created
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="transactionId" type="TransactionId">
+  Transaction ID for optimistic updates
+</ResponseField>
+
+**Errors**
+
+- `UnauthorizedError` - Not authorized to submit requests
+- `InternalServerError` - Server error
+
+## Example Requests
+
+### Development Tools
+
+```typescript
+// Request GitHub Actions integration
+await integrationRequest.create({
+  organizationId: "org_123",
+  integrationName: "GitHub Actions",
+  integrationUrl: "https://github.com/features/actions",
+  description: "We want to receive GitHub Actions workflow notifications in our deployment channels"
+})
+
+// Request Vercel integration
+await integrationRequest.create({
+  organizationId: "org_123",
+  integrationName: "Vercel",
+  integrationUrl: "https://vercel.com",
+  description: "Get deployment status updates and preview URLs in chat"
+})
+```
+
+### Project Management
+
+```typescript
+// Request Jira integration
+await integrationRequest.create({
+  organizationId: "org_123",
+  integrationName: "Jira",
+  integrationUrl: "https://www.atlassian.com/software/jira",
+  description: "Link Jira issues to threads, create issues from messages, and get ticket updates"
+})
+
+// Request Asana integration
+await integrationRequest.create({
+  organizationId: "org_123",
+  integrationName: "Asana",
+  integrationUrl: "https://asana.com",
+  description: "Create tasks from messages and get project updates in chat"
+})
+```
+
+### Design & Collaboration
+
+```typescript
+// Request Figma integration
+await integrationRequest.create({
+  organizationId: "org_123",
+  integrationName: "Figma",
+  integrationUrl: "https://www.figma.com",
+  description: "Share design links with rich previews and get notifications for comments and updates"
+})
+
+// Request Notion integration
+await integrationRequest.create({
+  organizationId: "org_123",
+  integrationName: "Notion",
+  integrationUrl: "https://www.notion.so",
+  description: "Link Notion pages to channels and get updates when pages are edited"
+})
+```
+
+## Request Status
+
+After submitting a request, the Hazel team will review it and update the status:
+
+- **pending** - Request submitted, awaiting review
+- **reviewing** - Team is evaluating the request
+- **planned** - Integration is scheduled for development
+- **implemented** - Integration is now available
+- **declined** - Request was declined (with explanation)
+
+<Info>
+  You can track the status of your integration requests in your organization settings. The team may reach out for additional details about your use case.
+</Info>
+
+## Tips for Effective Requests
+
+<Tip>
+  Be specific about your use case. Instead of "we need Jira integration," explain "we want to create Jira issues from messages and get status updates in our #engineering channel."
+</Tip>
+
+<Tip>
+  Include the integration URL so the team can quickly understand what you're requesting.
+</Tip>
+
+<Note>
+  Popular requests from multiple organizations are prioritized. If an integration you need has already been requested, reach out to support to add your vote.
+</Note>
+
+## Existing Integrations
+
+Before submitting a request, check if the integration is already available:
+
+- **GitHub** - Available now ([docs](/integrations/github))
+- **RSS Feeds** - Available now ([docs](/integrations/rss-feeds))
+- **Webhooks** - Available now ([docs](/integrations/webhooks))
+- **Bots** - Build custom integrations ([docs](/integrations/bots))
+
+## Related Resources
+
+<CardGroup cols={2}>
+  <Card title="Integrations Overview" icon="puzzle-piece" href="/integrations/overview">
+    See all available integrations
+  </Card>
+  <Card title="Build a Bot" icon="robot" href="/integrations/bots">
+    Create custom integrations with the Bot API
+  </Card>
+  <Card title="Webhooks" icon="webhook" href="/integrations/webhooks">
+    Integrate any service with webhooks
+  </Card>
+</CardGroup>
