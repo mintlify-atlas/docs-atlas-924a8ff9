@@ -1,0 +1,158 @@
+{
+  "projectType": "saas",
+  "projectName": "Hazel Chat",
+  "projectDescription": "A modern, real-time collaborative chat platform built with Effect-TS, ElectricSQL, and React",
+  "theme": "almond",
+  "primaryColor": "#7c3aed",
+  "lightColor": "#a78bfa",
+  "darkColor": "#6d28d9",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "installation"
+            ]
+          },
+          {
+            "group": "Core Features",
+            "pages": [
+              "features/messaging",
+              "features/channels",
+              "features/organizations",
+              "features/notifications",
+              "features/file-attachments",
+              "features/reactions",
+              "features/presence"
+            ]
+          },
+          {
+            "group": "Guides",
+            "pages": [
+              "guides/authentication",
+              "guides/deployment",
+              "guides/database-setup",
+              "guides/environment-variables",
+              "guides/workos-configuration"
+            ]
+          },
+          {
+            "group": "Integrations",
+            "pages": [
+              "integrations/overview",
+              "integrations/bots",
+              "integrations/github",
+              "integrations/rss-feeds",
+              "integrations/webhooks"
+            ]
+          },
+          {
+            "group": "Architecture",
+            "pages": [
+              "architecture/overview",
+              "architecture/monorepo-structure",
+              "architecture/effect-ts",
+              "architecture/electric-sql",
+              "architecture/rpc-system",
+              "architecture/cluster-workflows"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Overview",
+            "pages": [
+              "api/introduction",
+              "api/authentication",
+              "api/error-handling"
+            ]
+          },
+          {
+            "group": "Messaging",
+            "pages": [
+              "api/messages",
+              "api/message-reactions",
+              "api/pinned-messages",
+              "api/typing-indicators"
+            ]
+          },
+          {
+            "group": "Channels",
+            "pages": [
+              "api/channels",
+              "api/channel-members",
+              "api/channel-sections",
+              "api/channel-webhooks"
+            ]
+          },
+          {
+            "group": "Organizations",
+            "pages": [
+              "api/organizations",
+              "api/organization-members",
+              "api/invitations"
+            ]
+          },
+          {
+            "group": "Users",
+            "pages": [
+              "api/users",
+              "api/user-presence-status",
+              "api/notifications"
+            ]
+          },
+          {
+            "group": "Integrations",
+            "pages": [
+              "api/bots",
+              "api/custom-emojis",
+              "api/attachments",
+              "api/github-subscriptions",
+              "api/rss-subscriptions"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Real-time messaging with channels and direct messages",
+    "User presence and typing indicators",
+    "Message reactions and pinned messages",
+    "File attachments with Cloudflare R2 storage",
+    "Team management with organization roles",
+    "Bot integration with simple API",
+    "GitHub and RSS feed integrations",
+    "Local-first architecture with Electric SQL",
+    "Type-safe RPC with Effect-TS",
+    "Distributed workflows via Effect Cluster"
+  ],
+  "publicApiSurface": [
+    "Messages.send",
+    "Messages.update",
+    "Messages.delete",
+    "Channels.create",
+    "Channels.list",
+    "Channels.addMember",
+    "Organizations.create",
+    "Organizations.inviteMember",
+    "Bots.create",
+    "Bots.sendMessage",
+    "MessageReactions.add",
+    "MessageReactions.remove",
+    "PinnedMessages.pin",
+    "PinnedMessages.unpin",
+    "Attachments.upload",
+    "Users.updatePresence",
+    "Notifications.getSettings",
+    "Notifications.updateSettings"
+  ]
+}
