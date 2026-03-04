@@ -1,0 +1,256 @@
+---
+title: "Channel Members API"
+description: "Manage channel memberships and user preferences"
+---
+
+## Overview
+
+The Channel Members API allows you to add users to channels, update their preferences, and remove them from channels. Each channel member has individual settings for notifications, visibility, and favorites.
+
+All operations require authentication and appropriate permissions.
+
+## Methods
+
+### channelMember.create
+
+Adds the current user to a channel. The userId is automatically set from the authenticated user. Requires permission to join the channel (e.g., public channels or organization admin).
+
+<ParamField path="channelId" type="string" required>
+  Channel ID to join
+</ParamField>
+
+<ResponseField name="data" type="ChannelMember">
+  <Expandable title="ChannelMember object">
+    <ResponseField name="id" type="string">
+      Channel member ID
+    </ResponseField>
+    <ResponseField name="channelId" type="string">
+      Channel ID
+    </ResponseField>
+    <ResponseField name="userId" type="string">
+      User ID (automatically set to current user)
+    </ResponseField>
+    <ResponseField name="isHidden" type="boolean">
+      Whether the channel is hidden in the sidebar
+    </ResponseField>
+    <ResponseField name="isMuted" type="boolean">
+      Whether notifications are muted for this channel
+    </ResponseField>
+    <ResponseField name="isFavorite" type="boolean">
+      Whether the channel is marked as favorite
+    </ResponseField>
+    <ResponseField name="lastSeenMessageId" type="string | null">
+      ID of the last message seen by the user
+    </ResponseField>
+    <ResponseField name="notificationCount" type="number">
+      Number of unread notifications
+    </ResponseField>
+    <ResponseField name="joinedAt" type="string">
+      ISO 8601 timestamp when user joined
+    </ResponseField>
+    <ResponseField name="createdAt" type="string">
+      ISO 8601 timestamp when record was created
+    </ResponseField>
+    <ResponseField name="deletedAt" type="string | null">
+      ISO 8601 timestamp if soft-deleted
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="transactionId" type="string">
+  Transaction ID for optimistic updates
+</ResponseField>
+
+<CodeGroup>
+```typescript Example
+const result = await client.channelMember.create({
+  channelId: "ch-abc123"
+});
+```
+
+```typescript Response
+{
+  data: {
+    id: "cm-xyz789",
+    channelId: "ch-abc123",
+    userId: "user-123",
+    isHidden: false,
+    isMuted: false,
+    isFavorite: false,
+    lastSeenMessageId: null,
+    notificationCount: 0,
+    joinedAt: "2024-03-15T10:00:00Z",
+    createdAt: "2024-03-15T10:00:00Z",
+    deletedAt: null
+  },
+  transactionId: "txn-abc456"
+}
+```
+</CodeGroup>
+
+**Errors:**
+- `ChannelNotFoundError` - Channel doesn't exist
+- `UnauthorizedError` - User lacks permission to join channel
+- `InternalServerError` - Unexpected server error
+
+---
+
+### channelMember.update
+
+Updates channel member preferences and settings. Members can update their own preferences (mute, hide, favorite). Organization admins can update any member's settings.
+
+<ParamField path="id" type="string" required>
+  Channel member ID to update
+</ParamField>
+
+<ParamField path="isHidden" type="boolean">
+  Whether to hide the channel in the sidebar
+</ParamField>
+
+<ParamField path="isMuted" type="boolean">
+  Whether to mute notifications for this channel
+</ParamField>
+
+<ParamField path="isFavorite" type="boolean">
+  Whether to mark the channel as favorite
+</ParamField>
+
+<ParamField path="lastSeenMessageId" type="string | null">
+  ID of the last message seen by the user
+</ParamField>
+
+<ParamField path="notificationCount" type="number">
+  Number of unread notifications (typically managed by system)
+</ParamField>
+
+<ResponseField name="data" type="ChannelMember">
+  Updated channel member object (see channelMember.create for structure)
+</ResponseField>
+
+<ResponseField name="transactionId" type="string">
+  Transaction ID for optimistic updates
+</ResponseField>
+
+<CodeGroup>
+```typescript Mute channel
+const result = await client.channelMember.update({
+  id: "cm-xyz789",
+  isMuted: true
+});
+```
+
+```typescript Mark as favorite
+const result = await client.channelMember.update({
+  id: "cm-xyz789",
+  isFavorite: true
+});
+```
+
+```typescript Update last seen
+const result = await client.channelMember.update({
+  id: "cm-xyz789",
+  lastSeenMessageId: "msg-abc123"
+});
+```
+</CodeGroup>
+
+**Errors:**
+- `ChannelMemberNotFoundError` - Channel member doesn't exist
+- `UnauthorizedError` - User lacks permission to update member
+- `InternalServerError` - Unexpected server error
+
+---
+
+### channelMember.delete
+
+Removes a user from a channel (soft delete). Members can leave channels themselves. Organization admins can remove any member from a channel.
+
+<ParamField path="id" type="string" required>
+  Channel member ID to delete
+</ParamField>
+
+<ResponseField name="transactionId" type="string">
+  Transaction ID for optimistic updates
+</ResponseField>
+
+<CodeGroup>
+```typescript Example
+const result = await client.channelMember.delete({
+  id: "cm-xyz789"
+});
+```
+
+```typescript Response
+{
+  transactionId: "txn-abc456"
+}
+```
+</CodeGroup>
+
+**Errors:**
+- `ChannelMemberNotFoundError` - Channel member doesn't exist
+- `UnauthorizedError` - User lacks permission to remove member
+- `InternalServerError` - Unexpected server error
+
+---
+
+### channelMember.clearNotifications
+
+Clears the notification count for the current user in a specific channel. Called when a user views/enters a channel to reset their unread notification count.
+
+<ParamField path="channelId" type="string" required>
+  Channel ID to clear notifications for
+</ParamField>
+
+<ResponseField name="transactionId" type="string">
+  Transaction ID for optimistic updates
+</ResponseField>
+
+<CodeGroup>
+```typescript Example
+const result = await client.channelMember.clearNotifications({
+  channelId: "ch-abc123"
+});
+```
+
+```typescript Response
+{
+  transactionId: "txn-abc456"
+}
+```
+</CodeGroup>
+
+**Note:** This operation also deletes all notification records for this channel.
+
+**Errors:**
+- `ChannelNotFoundError` - Channel doesn't exist
+- `UnauthorizedError` - User is not a member of the channel
+- `InternalServerError` - Unexpected server error
+
+## Usage Example
+
+<CodeGroup>
+```typescript Complete Flow
+// Join a channel
+const membership = await client.channelMember.create({
+  channelId: "ch-abc123"
+});
+
+// Update preferences
+await client.channelMember.update({
+  id: membership.data.id,
+  isFavorite: true,
+  isMuted: false
+});
+
+// Clear notifications when viewing channel
+await client.channelMember.clearNotifications({
+  channelId: "ch-abc123"
+});
+
+// Leave channel
+await client.channelMember.delete({
+  id: membership.data.id
+});
+```
+</CodeGroup>

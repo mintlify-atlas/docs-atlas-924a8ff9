@@ -1,0 +1,693 @@
+---
+title: Error Handling
+description: Comprehensive guide to API error types and handling strategies
+---
+
+## Overview
+
+Hazel Chat uses typed errors based on Effect Schema, providing compile-time type safety and runtime validation. All errors include an HTTP status code and detailed information for debugging.
+
+## Error Structure
+
+All API errors follow this structure:
+
+```typescript
+interface ApiError {
+  _tag: string           // Unique error type identifier
+  message: string        // Human-readable error message
+  detail?: string        // Additional context (optional)
+  [key: string]: any     // Error-specific fields
+}
+```
+
+Errors are tagged unions, enabling exhaustive pattern matching:
+
+```typescript
+Effect.catchTags({
+  UnauthorizedError: (error) => handleUnauthorized(error),
+  MessageNotFoundError: (error) => handleNotFound(error),
+  InternalServerError: (error) => handleServerError(error)
+})
+```
+
+## HTTP Status Codes
+
+| Status | Category | Description |
+|--------|----------|-------------|
+| 400 | Bad Request | Invalid input or nested threads |
+| 401 | Unauthorized | Authentication failure |
+| 404 | Not Found | Resource doesn't exist |
+| 409 | Conflict | Resource already exists |
+| 429 | Rate Limited | Too many requests |
+| 500 | Internal Error | Unexpected server error |
+| 503 | Service Unavailable | Infrastructure or workflow service down |
+
+## Error Types
+
+### Authentication Errors (401)
+
+#### UnauthorizedError
+
+Generic authorization failure. User lacks permission for the requested operation.
+
+```typescript
+{
+  _tag: "UnauthorizedError",
+  message: "Permission denied",
+  detail: "You don't have access to this resource"
+}
+```
+
+**Common causes:**
+- User not a member of the channel/organization
+- Insufficient role permissions
+- Attempting to modify another user's content
+
+**How to handle:**
+```typescript
+Effect.catchTag("UnauthorizedError", (error) =>
+  Effect.gen(function* () {
+    // Show permission denied message
+    yield* showErrorToast("You don't have permission for this action")
+    // Optionally redirect
+    yield* Effect.sync(() => router.push("/channels"))
+  })
+)
+```
+
+#### SessionNotProvidedError
+
+No authentication credentials provided.
+
+```typescript
+{
+  _tag: "SessionNotProvidedError",
+  message: "No session cookie or Authorization header",
+  detail: "Authentication required"
+}
+```
+
+**How to handle:**
+```typescript
+Effect.catchTag("SessionNotProvidedError", () =>
+  // Redirect to login
+  Effect.sync(() => window.location.href = "/auth/login")
+)
+```
+
+#### SessionExpiredError
+
+Session token has expired.
+
+```typescript
+{
+  _tag: "SessionExpiredError",
+  message: "Session has expired",
+  detail: "Please re-authenticate"
+}
+```
+
+**How to handle:**
+```typescript
+Effect.catchTag("SessionExpiredError", () =>
+  Effect.gen(function* () {
+    // Attempt session refresh
+    const refreshed = yield* refreshSession()
+    if (refreshed) {
+      // Retry original request
+      return yield* originalRequest
+    } else {
+      // Redirect to login
+      yield* Effect.sync(() => window.location.href = "/auth/login")
+    }
+  })
+)
+```
+
+#### InvalidBearerTokenError
+
+JWT verification failed (invalid signature or format).
+
+```typescript
+{
+  _tag: "InvalidBearerTokenError",
+  message: "JWT verification failed",
+  detail: "Invalid signature or expired token"
+}
+```
+
+**Common causes:**
+- Bot token is incorrect
+- Token signature doesn't match
+- Token format is malformed
+
+#### InvalidJwtPayloadError
+
+JWT payload is missing required fields.
+
+```typescript
+{
+  _tag: "InvalidJwtPayloadError",
+  message: "Token missing user ID",
+  detail: "The provided token is missing the user ID"
+}
+```
+
+#### SessionAuthenticationError
+
+Generic session authentication failure.
+
+```typescript
+{
+  _tag: "SessionAuthenticationError",
+  message: "Authentication failed",
+  detail: "Unable to verify session"
+}
+```
+
+### Resource Not Found (404)
+
+#### MessageNotFoundError
+
+Requested message doesn't exist.
+
+```typescript
+{
+  _tag: "MessageNotFoundError",
+  messageId: "msg_123" // The ID that wasn't found
+}
+```
+
+**Used in:**
+- `message.update`
+- `message.delete`
+- `channel.createThread` (if parent message not found)
+
+**How to handle:**
+```typescript
+Effect.catchTag("MessageNotFoundError", (error) =>
+  Effect.gen(function* () {
+    yield* showErrorToast(`Message ${error.messageId} not found`)
+    // Optionally refresh message list
+    yield* refreshMessages()
+  })
+)
+```
+
+#### ChannelNotFoundError
+
+Requested channel doesn't exist.
+
+```typescript
+{
+  _tag: "ChannelNotFoundError",
+  channelId: "ch_456" // The ID that wasn't found
+}
+```
+
+**Used in:**
+- `channel.update`
+- `channel.delete`
+- `channel.generateName`
+
+#### ThreadChannelNotFoundError
+
+Thread channel not found in workflow.
+
+```typescript
+{
+  _tag: "ThreadChannelNotFoundError",
+  message: string,
+  channelId: string
+}
+```
+
+**Used in:** Thread naming workflow
+
+#### OriginalMessageNotFoundError
+
+Original message for thread not found.
+
+```typescript
+{
+  _tag: "OriginalMessageNotFoundError",
+  message: string,
+  threadId: string
+}
+```
+
+**Used in:** Thread naming workflow
+
+### Bad Request (400)
+
+#### NestedThreadError
+
+Attempted to create a thread within another thread.
+
+```typescript
+{
+  _tag: "NestedThreadError",
+  channelId: "ch_thread_123" // The thread channel ID
+}
+```
+
+**Why it happens:** Hazel doesn't support nested threads (threads within threads).
+
+**How to handle:**
+```typescript
+Effect.catchTag("NestedThreadError", () =>
+  showErrorToast("Cannot create threads within threads")
+)
+```
+
+### Conflict (409)
+
+#### DmChannelAlreadyExistsError
+
+Direct message channel already exists between users.
+
+```typescript
+{
+  _tag: "DmChannelAlreadyExistsError",
+  message: "DM channel already exists",
+  detail?: string // Optional additional info
+}
+```
+
+**How to handle:**
+```typescript
+Effect.catchTag("DmChannelAlreadyExistsError", () =>
+  Effect.gen(function* () {
+    // Find existing DM and navigate to it
+    const existingDm = yield* findExistingDm(userId)
+    yield* navigateToChannel(existingDm.id)
+  })
+)
+```
+
+#### OAuthCodeExpiredError
+
+OAuth authorization code has expired or was already used.
+
+```typescript
+{
+  _tag: "OAuthCodeExpiredError",
+  message: "Authorization code expired"
+}
+```
+
+**How to handle:** Restart OAuth flow
+
+### Rate Limiting (429)
+
+#### RateLimitExceededError
+
+User exceeded rate limit (60 requests/minute).
+
+```typescript
+{
+  _tag: "RateLimitExceededError",
+  message: "Rate limit exceeded",
+  retryAfterMs: 5000,     // Wait before retry (milliseconds)
+  limit: 60,              // Total limit
+  remaining: 0            // Requests remaining
+}
+```
+
+**How to handle:**
+```typescript
+Effect.catchTag("RateLimitExceededError", (error) =>
+  Effect.gen(function* () {
+    // Show user-friendly message
+    yield* showErrorToast(
+      `Too many requests. Please wait ${error.retryAfterMs / 1000}s`
+    )
+    
+    // Wait and retry
+    yield* Effect.sleep(error.retryAfterMs)
+    return yield* Effect.retry(originalRequest, {
+      schedule: "exponential",
+      times: 3
+    })
+  })
+)
+```
+
+<Warning>
+Implement exponential backoff to avoid repeatedly hitting rate limits.
+</Warning>
+
+### Internal Server Errors (500)
+
+#### InternalServerError
+
+Unexpected server error.
+
+```typescript
+{
+  _tag: "InternalServerError",
+  message: string,        // High-level error description
+  detail?: string,        // Additional context
+  cause?: any            // Underlying cause (if available)
+}
+```
+
+**How to handle:**
+```typescript
+Effect.catchTag("InternalServerError", (error) =>
+  Effect.gen(function* () {
+    // Log for debugging
+    console.error("Server error:", error)
+    
+    // Show user-friendly message
+    yield* showErrorToast("Something went wrong. Please try again.")
+    
+    // Report to error tracking (Sentry, etc.)
+    yield* reportError(error)
+  })
+)
+```
+
+#### WorkflowInitializationError
+
+Workflow service initialization failed.
+
+```typescript
+{
+  _tag: "WorkflowInitializationError",
+  message: string,
+  cause?: any
+}
+```
+
+**Used in:** Thread naming and other workflow operations
+
+### Service Unavailable (503)
+
+#### SessionLoadError
+
+Failed to load session from database or cache.
+
+```typescript
+{
+  _tag: "SessionLoadError",
+  message: "Failed to load session",
+  detail: "Database connection error"
+}
+```
+
+**How to handle:** Can be retried (503 is temporary)
+
+```typescript
+Effect.catchTag("SessionLoadError", () =>
+  Effect.retry(originalRequest, {
+    schedule: "exponential",
+    times: 3,
+    delay: "1 second"
+  })
+)
+```
+
+#### WorkflowServiceUnavailableError
+
+Workflow service (cluster) is unreachable.
+
+```typescript
+{
+  _tag: "WorkflowServiceUnavailableError",
+  message: "Workflow service unavailable",
+  cause?: string | null
+}
+```
+
+**Used in:** AI thread naming (`channel.generateName`)
+
+**How to handle:**
+```typescript
+Effect.catchTag("WorkflowServiceUnavailableError", () =>
+  Effect.gen(function* () {
+    yield* showErrorToast("AI service temporarily unavailable")
+    // Fallback: Allow manual naming
+    yield* promptForManualName()
+  })
+)
+```
+
+#### WorkOSUserFetchError
+
+Failed to fetch user data from WorkOS.
+
+```typescript
+{
+  _tag: "WorkOSUserFetchError",
+  message: "Failed to fetch user from WorkOS",
+  detail: string
+}
+```
+
+### AI/Workflow Errors
+
+These errors occur during AI-powered operations (like thread naming):
+
+#### AIProviderUnavailableError
+
+AI service (OpenAI, etc.) is unreachable.
+
+```typescript
+{
+  _tag: "AIProviderUnavailableError",
+  message: string,
+  provider?: string  // e.g., "openai"
+}
+```
+
+#### AIRateLimitError
+
+AI service rate limit exceeded.
+
+```typescript
+{
+  _tag: "AIRateLimitError",
+  message: string,
+  retryAfter?: number
+}
+```
+
+#### AIResponseParseError
+
+Failed to parse AI response.
+
+```typescript
+{
+  _tag: "AIResponseParseError",
+  message: string,
+  response?: string
+}
+```
+
+#### ThreadContextQueryError
+
+Database query for thread context failed.
+
+```typescript
+{
+  _tag: "ThreadContextQueryError",
+  message: string,
+  cause?: any
+}
+```
+
+#### ThreadNameUpdateError
+
+Failed to update thread name in database.
+
+```typescript
+{
+  _tag: "ThreadNameUpdateError",
+  message: string,
+  cause?: any
+}
+```
+
+## Error Handling Patterns
+
+### Exhaustive Tag Matching
+
+```typescript
+const result = yield* client["message.create"](payload).pipe(
+  Effect.catchTags({
+    UnauthorizedError: handleUnauthorized,
+    MessageNotFoundError: handleNotFound,
+    RateLimitExceededError: handleRateLimit,
+    InternalServerError: handleServerError
+  })
+)
+```
+
+### Retry with Exponential Backoff
+
+```typescript
+const result = yield* client["message.create"](payload).pipe(
+  Effect.retry({
+    schedule: "exponential",
+    times: 3,
+    delay: "1 second"
+  }),
+  Effect.catchTag("RateLimitExceededError", (error) =>
+    Effect.sleep(error.retryAfterMs).pipe(
+      Effect.andThen(Effect.retry(operation, { times: 1 }))
+    )
+  )
+)
+```
+
+### Fallback Strategies
+
+```typescript
+const result = yield* client["channel.generateName"]({
+  channelId: "thread-id"
+}).pipe(
+  Effect.catchTags({
+    WorkflowServiceUnavailableError: () => 
+      // Fallback: Use default thread name
+      Effect.succeed({ success: false }),
+    AIProviderUnavailableError: () =>
+      // Fallback: Generate simple name
+      Effect.succeed({ success: false })
+  })
+)
+
+if (!result.success) {
+  // Use fallback thread name
+  yield* setThreadName(channelId, "New Thread")
+}
+```
+
+### Graceful Degradation
+
+```typescript
+const uploadResult = yield* client["attachment.create"](file).pipe(
+  Effect.catchTag("InternalServerError", () =>
+    Effect.gen(function* () {
+      // Degrade: Send message without attachment
+      yield* showWarning("Failed to upload attachment")
+      return yield* client["message.create"]({
+        ...payload,
+        attachmentIds: [] // Send without attachment
+      })
+    })
+  )
+)
+```
+
+## Error Reporting
+
+<Note>
+Always report unexpected errors to your error tracking service (Sentry, Datadog, etc.) for monitoring and debugging.
+</Note>
+
+```typescript
+import * as Sentry from "@sentry/browser"
+
+const reportError = (error: ApiError) =>
+  Effect.sync(() => {
+    Sentry.captureException(error, {
+      tags: {
+        errorType: error._tag,
+        errorMessage: error.message
+      },
+      extra: {
+        detail: error.detail,
+        ...error // Include all error fields
+      }
+    })
+  })
+
+// Use in error handling
+Effect.catchTag("InternalServerError", (error) =>
+  Effect.gen(function* () {
+    yield* reportError(error)
+    yield* showErrorToast("Something went wrong")
+  })
+)
+```
+
+## Best Practices
+
+### 1. Handle Specific Errors First
+
+```typescript
+Effect.catchTags({
+  // Specific errors first
+  RateLimitExceededError: handleRateLimit,
+  MessageNotFoundError: handleNotFound,
+  
+  // Generic fallback last
+  InternalServerError: handleGenericError
+})
+```
+
+### 2. Provide User-Friendly Messages
+
+```typescript
+const friendlyMessages = {
+  UnauthorizedError: "You don't have permission for this action",
+  MessageNotFoundError: "This message no longer exists",
+  RateLimitExceededError: "You're doing that too quickly",
+  InternalServerError: "Something went wrong. Please try again."
+}
+```
+
+### 3. Log for Debugging
+
+```typescript
+Effect.catchTag("InternalServerError", (error) =>
+  Effect.gen(function* () {
+    // Log full error details
+    console.error("API Error:", {
+      tag: error._tag,
+      message: error.message,
+      detail: error.detail,
+      cause: error.cause
+    })
+    
+    // Show simple message to user
+    yield* showErrorToast("Something went wrong")
+  })
+)
+```
+
+### 4. Implement Retry Logic
+
+```typescript
+const withRetry = <A, E>(effect: Effect.Effect<A, E>) =>
+  effect.pipe(
+    Effect.retry({
+      schedule: "exponential",
+      times: 3,
+      delay: "1 second"
+    }),
+    Effect.catchAll((error) =>
+      Effect.gen(function* () {
+        yield* reportError(error)
+        return yield* Effect.fail(error)
+      })
+    )
+  )
+```
+
+<Warning>
+**Don't retry** 401 (Unauthorized) or 400 (Bad Request) errors. These won't succeed without changing the request.
+</Warning>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Authentication" icon="lock" href="/api/authentication">
+    Learn about authentication errors in detail
+  </Card>
+  
+  <Card title="API Introduction" icon="book" href="/api/introduction">
+    Return to API overview and architecture
+  </Card>
+</CardGroup>

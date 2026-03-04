@@ -1,0 +1,438 @@
+---
+title: User Presence & Typing Indicators
+description: Real-time online status, custom statuses, and typing indicators for live collaboration
+icon: signal
+---
+
+Hazel Chat provides rich presence features to show who's online, what they're doing, and when they're typing.
+
+## Overview
+
+Presence features include:
+
+- Online/offline status with automatic detection
+- Custom status messages with emoji
+- Status expiration for temporary states
+- Active channel tracking
+- Do Not Disturb mode
+- Real-time typing indicators
+- Last seen timestamps
+
+<CardGroup cols={2}>
+  <Card title="Real-Time Status" icon="circle">
+    See who's online and active in real-time across all channels
+  </Card>
+  <Card title="Typing Indicators" icon="message-dots">
+    Know when someone is composing a reply in your channel
+  </Card>
+  <Card title="Custom Status" icon="face-smile">
+    Set custom status messages with emoji and expiration
+  </Card>
+  <Card title="Heartbeat Detection" icon="heart-pulse">
+    Reliable offline detection with automatic heartbeat monitoring
+  </Card>
+</CardGroup>
+
+## User Presence Status
+
+### Status Types
+
+Users can have one of several status states:
+
+| Status | Indicator | Meaning |
+|--------|-----------|----------|
+| **Online** | 🟢 Green dot | User is actively using the app |
+| **Away** | 🟡 Yellow dot | User is idle or away from keyboard |
+| **Do Not Disturb** | 🔴 Red dot with line | User doesn't want to be interrupted |
+| **Offline** | ⚪ Gray dot | User is not connected |
+
+### Setting Your Status
+
+Change your presence status:
+
+1. Click your avatar in the sidebar
+2. Select a status:
+   - **Online** - I'm available
+   - **Away** - I'm away from keyboard
+   - **Do Not Disturb** - I don't want to be disturbed
+3. Optionally add a custom message and emoji
+4. Optionally set an expiration time
+
+<Info>
+  Your status is synced across all devices. Setting "Online" on desktop will show you as online on mobile too.
+</Info>
+
+### Custom Status Messages
+
+Add context to your status:
+
+```
+🏖️ On vacation until Monday
+📅 In a meeting
+🎯 Focusing - check back later
+🚀 Launching the new feature!
+☕ Coffee break
+```
+
+**Setting a custom status:**
+
+1. Click your avatar
+2. Click **Set Status**
+3. Choose an emoji (optional)
+4. Enter a status message
+5. Set expiration (optional):
+   - 30 minutes
+   - 1 hour
+   - 4 hours
+   - Today
+   - This week
+   - Custom date/time
+6. Click **Save**
+
+### Status Expiration
+
+Status automatically clears when:
+
+- The expiration time is reached
+- You manually clear your status
+- You set a new status
+
+When a status expires:
+- Custom message is cleared
+- Emoji is removed
+- Presence returns to automatic (online/away/offline)
+
+### Clearing Your Status
+
+1. Click your avatar
+2. Click **Clear Status**
+3. Your custom message and emoji are removed
+
+Your presence status (online/away/offline) remains unchanged.
+
+## Automatic Status Detection
+
+### Online Detection
+
+You're marked as online when:
+
+- The app is open and focused
+- You've interacted with the app recently (within 5 minutes)
+- Heartbeat requests are succeeding
+
+### Away Detection
+
+You're marked as away when:
+
+- No interaction for 5 minutes
+- App is open but not focused
+- Computer is locked or sleeping
+
+### Offline Detection
+
+You're marked as offline when:
+
+- No heartbeat received for 2 minutes
+- Network connection lost
+- App is closed
+
+<Note>
+  The system uses a heartbeat mechanism to reliably detect offline status. Heartbeats are sent every 30 seconds when the app is active.
+</Note>
+
+## Heartbeat System
+
+Hazel Chat uses a lightweight heartbeat for reliable presence:
+
+**How it works:**
+
+1. Client sends heartbeat every 30 seconds while active
+2. Heartbeat updates `lastSeenAt` timestamp
+3. Server-side cron job runs every minute
+4. Users with `lastSeenAt` older than 2 minutes are marked offline
+
+**Heartbeat RPC:**
+```typescript
+await rpcClient.userPresenceStatusHeartbeat({})
+
+// Returns:
+{
+  lastSeenAt: Date
+}
+```
+
+This provides more reliable offline detection than websocket connection state alone.
+
+## Active Channel Tracking
+
+The system tracks which channel you're currently viewing:
+
+- Updates when you navigate to a channel
+- Clears when you navigate away
+- Used to show "viewing this channel" indicators
+- Helps determine message read status
+
+**Setting active channel:**
+```typescript
+await rpcClient.userPresenceStatusUpdate({
+  activeChannelId: "channel_123"
+})
+```
+
+**Clearing active channel:**
+```typescript
+await rpcClient.userPresenceStatusUpdate({
+  activeChannelId: null
+})
+```
+
+## Do Not Disturb Mode
+
+### Enabling DND
+
+1. Click your avatar
+2. Select **Do Not Disturb**
+3. Optionally set when it should end
+
+When Do Not Disturb is active:
+
+- Status shows 🔴 red dot
+- Notifications are suppressed (see [Notifications](/features/notifications))
+- Desktop/push notifications disabled
+- Still receive and can send messages
+- Other users see your DND status
+
+### DND with Expiration
+
+Set temporary DND:
+
+```
+🔴 Do Not Disturb - In a meeting (until 3:00 PM)
+```
+
+DND automatically disables when the expiration time is reached.
+
+### Suppress Notifications Flag
+
+The `suppressNotifications` flag controls notification behavior:
+
+```typescript
+{
+  status: "dnd",
+  suppressNotifications: true,
+  statusExpiresAt: "2024-03-04T15:00:00Z"
+}
+```
+
+When `suppressNotifications` is true, all notifications are suppressed regardless of channel settings.
+
+## Typing Indicators
+
+See when others are typing in real-time.
+
+### How Typing Indicators Work
+
+1. You start typing in a channel
+2. Client sends typing indicator event
+3. Other channel members see "[Name] is typing..."
+4. Indicator disappears when:
+   - You stop typing for 3 seconds
+   - You send the message
+   - You leave the channel
+
+### Privacy
+
+Typing indicators:
+
+- Only visible to members of the same channel
+- Automatically expire after 10 seconds
+- Can be disabled in user preferences (coming soon)
+
+### Multiple Typers
+
+When multiple users are typing:
+
+```
+Alice is typing...
+Alice and Bob are typing...
+Alice, Bob, and 2 others are typing...
+```
+
+### Technical Implementation
+
+**Start typing:**
+```typescript
+await rpcClient.typingIndicatorCreate({
+  channelId: "channel_123",
+  memberId: "member_456",
+  lastTyped: Date.now()
+})
+```
+
+**Update typing timestamp:**
+```typescript
+await rpcClient.typingIndicatorUpdate({
+  id: "indicator_id",
+  lastTyped: Date.now()
+})
+```
+
+**Stop typing:**
+```typescript
+await rpcClient.typingIndicatorDelete({
+  id: "indicator_id"
+})
+```
+
+Typing indicators are **upserted** based on `(channelId, memberId)` - if one already exists for that combination, it's updated instead of creating a duplicate.
+
+## Last Seen Timestamp
+
+Track when users were last active:
+
+- Updated with every heartbeat
+- Shown on user profiles
+- Used for offline detection
+- Persists across sessions
+
+**Display format:**
+```
+Last seen: 5 minutes ago
+Last seen: 2 hours ago
+Last seen: Yesterday at 3:42 PM
+```
+
+## Presence in UI
+
+### User List
+
+Channel member lists show:
+
+- Online members first (green dot)
+- Away members next (yellow dot)
+- Offline members last (gray dot)
+- Custom status message below name
+- Status emoji next to name
+
+### Direct Messages
+
+DM channels show presence:
+
+- Avatar has status indicator (colored dot)
+- Last seen time if offline
+- Custom status in channel header
+
+### Mentions and Profiles
+
+User mentions and profile cards display:
+
+- Current status (online/away/dnd/offline)
+- Custom status message and emoji
+- Last seen timestamp if offline
+
+## Technical Details
+
+### Presence Data Model
+
+```typescript
+{
+  userId: string                 // User ID (unique)
+  status: "online" | "away" | "dnd" | "offline"
+  customMessage: string | null   // Custom status text
+  statusEmoji: string | null     // Status emoji
+  statusExpiresAt: Date | null   // When status expires
+  activeChannelId: string | null // Currently viewing
+  suppressNotifications: boolean // DND mode
+  lastSeenAt: Date              // Last heartbeat
+  updatedAt: Date               // Last status change
+}
+```
+
+### Typing Indicator Data Model
+
+```typescript
+{
+  id: string          // Indicator ID
+  channelId: string   // Channel where typing
+  memberId: string    // Channel member ID
+  lastTyped: number   // Timestamp (ms)
+}
+```
+
+### RPC Operations
+
+**Update Presence:**
+```typescript
+userPresenceStatus.update({
+  status?: "online" | "away" | "dnd" | "offline",
+  customMessage?: string | null,
+  statusEmoji?: string | null,
+  statusExpiresAt?: Date | null,
+  activeChannelId?: string | null,
+  suppressNotifications?: boolean
+})
+```
+
+**Heartbeat:**
+```typescript
+userPresenceStatus.heartbeat({})
+```
+
+**Clear Status:**
+```typescript
+userPresenceStatus.clearStatus({})
+```
+
+### Real-Time Sync
+
+Presence data syncs via Electric SQL:
+
+- Instant updates to all connected clients
+- Optimistic updates for instant UI feedback
+- Automatic conflict resolution
+- Offline support with sync on reconnect
+
+### Offline Detection Cron
+
+Server-side cron job:
+
+```typescript
+// Runs every minute
+UPDATE user_presence_status
+SET status = 'offline'
+WHERE last_seen_at < NOW() - INTERVAL '2 minutes'
+  AND status != 'offline'
+```
+
+This ensures reliable offline detection even if clients disconnect ungracefully.
+
+### Typing Indicator Cleanup
+
+Typing indicators auto-expire:
+
+- Client-side: Stop showing after 10 seconds with no update
+- Server-side: Delete indicators older than 1 minute
+
+### Performance Considerations
+
+**Heartbeat frequency:**
+- 30 seconds for active users
+- Paused when app is backgrounded
+- Batched with other status updates
+
+**Typing indicator throttling:**
+- Maximum 1 update per second per channel
+- Debounced on client side
+- Automatic cleanup prevents stale data
+
+### Permissions
+
+**View Presence:**
+- Organization members can see each other's presence
+- Public presence data (online/offline only) for DMs
+
+**Update Own Presence:**
+- Any authenticated user
+
+**Update Typing Indicators:**
+- Channel members only

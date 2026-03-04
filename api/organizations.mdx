@@ -1,0 +1,597 @@
+---
+title: 'Organizations API'
+description: 'Manage organizations, settings, domains, and public invites'
+icon: 'building'
+---
+
+## Overview
+
+The Organizations API allows you to create and manage organizations in Hazel Chat. Organizations are the top-level entities that contain members, channels, and settings. This API handles organization lifecycle, slug management, public invite mode, WorkOS domain verification, and admin portal access.
+
+All organization operations require authentication and are protected by role-based access control policies. Most operations are restricted to organization admins and owners.
+
+## Create organization
+
+Creates a new organization and automatically adds the authenticated user as the owner.
+
+<ParamField body="name" type="string" required>
+  The organization name.
+</ParamField>
+
+<ParamField body="slug" type="string">
+  URL-friendly slug for the organization. Must be unique across all organizations. If provided and already exists, returns `OrganizationSlugAlreadyExistsError`.
+</ParamField>
+
+<ParamField body="logoUrl" type="string">
+  URL to the organization's logo image.
+</ParamField>
+
+<ParamField body="settings" type="object">
+  Custom settings object for organization-specific configuration.
+</ParamField>
+
+### Response
+
+<ResponseField name="data" type="object" required>
+  <Expandable title="properties">
+    <ResponseField name="id" type="string" required>
+      Unique organization identifier (OrganizationId).
+    </ResponseField>
+    
+    <ResponseField name="name" type="string" required>
+      Organization name.
+    </ResponseField>
+    
+    <ResponseField name="slug" type="string">
+      URL-friendly slug.
+    </ResponseField>
+    
+    <ResponseField name="logoUrl" type="string">
+      Logo image URL.
+    </ResponseField>
+    
+    <ResponseField name="settings" type="object">
+      Custom settings dictionary.
+    </ResponseField>
+    
+    <ResponseField name="isPublic" type="boolean" required>
+      Whether public invite mode is enabled.
+    </ResponseField>
+    
+    <ResponseField name="createdAt" type="string" required>
+      ISO 8601 timestamp of creation.
+    </ResponseField>
+    
+    <ResponseField name="updatedAt" type="string" required>
+      ISO 8601 timestamp of last update.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="transactionId" type="string" required>
+  Transaction ID for optimistic UI updates.
+</ResponseField>
+
+### Errors
+
+- `OrganizationSlugAlreadyExistsError` - The provided slug is already in use
+- `UnauthorizedError` - User is not authenticated
+- `InternalServerError` - Unexpected server error
+
+<CodeGroup>
+
+```typescript TypeScript
+const result = yield* client.call("organization.create", {
+  name: "Acme Corporation",
+  slug: "acme",
+  logoUrl: "https://example.com/logo.png",
+  settings: {
+    theme: "dark"
+  }
+});
+```
+
+```javascript JavaScript
+const result = await client.call("organization.create", {
+  name: "Acme Corporation",
+  slug: "acme",
+  logoUrl: "https://example.com/logo.png",
+  settings: {
+    theme: "dark"
+  }
+});
+```
+
+</CodeGroup>
+
+---
+
+## Update organization
+
+Updates an existing organization. Only admins and owners can update organizations.
+
+<ParamField body="id" type="string" required>
+  Organization ID to update.
+</ParamField>
+
+<ParamField body="name" type="string">
+  New organization name.
+</ParamField>
+
+<ParamField body="slug" type="string">
+  New slug. Must be unique.
+</ParamField>
+
+<ParamField body="logoUrl" type="string">
+  New logo URL.
+</ParamField>
+
+<ParamField body="settings" type="object">
+  Updated settings object.
+</ParamField>
+
+### Response
+
+Returns the same structure as create organization.
+
+### Errors
+
+- `OrganizationNotFoundError` - Organization does not exist
+- `OrganizationSlugAlreadyExistsError` - Slug is already taken
+- `UnauthorizedError` - User lacks permission
+- `InternalServerError` - Unexpected server error
+
+<CodeGroup>
+
+```typescript TypeScript
+const result = yield* client.call("organization.update", {
+  id: "org_123",
+  name: "Acme Inc."
+});
+```
+
+```javascript JavaScript
+const result = await client.call("organization.update", {
+  id: "org_123",
+  name: "Acme Inc."
+});
+```
+
+</CodeGroup>
+
+---
+
+## Delete organization
+
+Deletes an organization (soft delete). Only admins and owners can delete organizations.
+
+<ParamField body="id" type="string" required>
+  Organization ID to delete.
+</ParamField>
+
+### Response
+
+<ResponseField name="transactionId" type="string" required>
+  Transaction ID for optimistic UI updates.
+</ResponseField>
+
+### Errors
+
+- `OrganizationNotFoundError` - Organization does not exist
+- `UnauthorizedError` - User lacks permission
+- `InternalServerError` - Unexpected server error
+
+<CodeGroup>
+
+```typescript TypeScript
+const result = yield* client.call("organization.delete", {
+  id: "org_123"
+});
+```
+
+```javascript JavaScript
+const result = await client.call("organization.delete", {
+  id: "org_123"
+});
+```
+
+</CodeGroup>
+
+---
+
+## Set organization slug
+
+Sets or updates the organization's slug. Only admins and owners can modify slugs.
+
+<ParamField body="id" type="string" required>
+  Organization ID.
+</ParamField>
+
+<ParamField body="slug" type="string" required>
+  New slug value. Must be unique.
+</ParamField>
+
+### Response
+
+Returns the same structure as create organization.
+
+### Errors
+
+- `OrganizationNotFoundError` - Organization does not exist
+- `OrganizationSlugAlreadyExistsError` - Slug is already taken
+- `UnauthorizedError` - User lacks permission
+- `InternalServerError` - Unexpected server error
+
+<CodeGroup>
+
+```typescript TypeScript
+const result = yield* client.call("organization.setSlug", {
+  id: "org_123",
+  slug: "acme-corp"
+});
+```
+
+```javascript JavaScript
+const result = await client.call("organization.setSlug", {
+  id: "org_123",
+  slug: "acme-corp"
+});
+```
+
+</CodeGroup>
+
+---
+
+## Set public mode
+
+Toggles public invite mode for an organization. When enabled, anyone with the invite URL can join the workspace. Only admins and owners can modify this setting.
+
+<ParamField body="id" type="string" required>
+  Organization ID.
+</ParamField>
+
+<ParamField body="isPublic" type="boolean" required>
+  Whether to enable or disable public invite mode.
+</ParamField>
+
+### Response
+
+Returns the same structure as create organization.
+
+### Errors
+
+- `OrganizationNotFoundError` - Organization does not exist
+- `UnauthorizedError` - User lacks permission
+- `InternalServerError` - Unexpected server error
+
+<CodeGroup>
+
+```typescript TypeScript
+const result = yield* client.call("organization.setPublicMode", {
+  id: "org_123",
+  isPublic: true
+});
+```
+
+```javascript JavaScript
+const result = await client.call("organization.setPublicMode", {
+  id: "org_123",
+  isPublic: true
+});
+```
+
+</CodeGroup>
+
+---
+
+## Get public organization info
+
+Retrieves limited public information about an organization by slug. No authentication required. Only returns data if the organization has public invites enabled.
+
+<ParamField body="slug" type="string" required>
+  Organization slug to look up.
+</ParamField>
+
+### Response
+
+<ResponseField name="id" type="string">
+  Organization ID.
+</ResponseField>
+
+<ResponseField name="name" type="string">
+  Organization name.
+</ResponseField>
+
+<ResponseField name="slug" type="string">
+  Organization slug.
+</ResponseField>
+
+<ResponseField name="logoUrl" type="string">
+  Logo URL.
+</ResponseField>
+
+<ResponseField name="memberCount" type="number">
+  Number of members in the organization.
+</ResponseField>
+
+<Info>
+  Returns `null` if the organization is not found or does not have public invites enabled.
+</Info>
+
+### Errors
+
+- `InternalServerError` - Unexpected server error
+
+<CodeGroup>
+
+```typescript TypeScript
+const info = yield* client.call("organization.getBySlugPublic", {
+  slug: "acme"
+});
+
+if (info) {
+  console.log(`${info.name} has ${info.memberCount} members`);
+}
+```
+
+```javascript JavaScript
+const info = await client.call("organization.getBySlugPublic", {
+  slug: "acme"
+});
+
+if (info) {
+  console.log(`${info.name} has ${info.memberCount} members`);
+}
+```
+
+</CodeGroup>
+
+---
+
+## Join via public invite
+
+Joins an organization via public invite link. Requires authentication. Creates membership with "member" role.
+
+<ParamField body="slug" type="string" required>
+  Organization slug from the public invite URL.
+</ParamField>
+
+### Response
+
+Returns the same structure as create organization.
+
+### Errors
+
+- `OrganizationNotFoundError` - Organization does not exist
+- `PublicInviteDisabledError` - Organization has public invites disabled
+- `AlreadyMemberError` - User is already a member
+- `UnauthorizedError` - User is not authenticated
+- `InternalServerError` - Unexpected server error
+
+<CodeGroup>
+
+```typescript TypeScript
+const result = yield* client.call("organization.joinViaPublicInvite", {
+  slug: "acme"
+});
+```
+
+```javascript JavaScript
+const result = await client.call("organization.joinViaPublicInvite", {
+  slug: "acme"
+});
+```
+
+</CodeGroup>
+
+---
+
+## Get admin portal link
+
+Generates a WorkOS Admin Portal link for managing SSO, domain verification, directory sync, audit logs, and log streams. Only admins and owners can access the admin portal.
+
+<ParamField body="id" type="string" required>
+  Organization ID.
+</ParamField>
+
+<ParamField body="intent" type="string" required>
+  Portal intent. One of: `"sso"`, `"domain_verification"`, `"dsync"`, `"audit_logs"`, `"log_streams"`.
+</ParamField>
+
+### Response
+
+<ResponseField name="link" type="string" required>
+  WorkOS admin portal URL.
+</ResponseField>
+
+### Errors
+
+- `OrganizationNotFoundError` - Organization does not exist
+- `UnauthorizedError` - User lacks permission
+- `InternalServerError` - Unexpected server error
+
+<CodeGroup>
+
+```typescript TypeScript
+const result = yield* client.call("organization.getAdminPortalLink", {
+  id: "org_123",
+  intent: "sso"
+});
+
+window.open(result.link, "_blank");
+```
+
+```javascript JavaScript
+const result = await client.call("organization.getAdminPortalLink", {
+  id: "org_123",
+  intent: "sso"
+});
+
+window.open(result.link, "_blank");
+```
+
+</CodeGroup>
+
+---
+
+## List domains
+
+Lists all verified and pending domains for an organization. Only admins and owners can list domains.
+
+<ParamField body="id" type="string" required>
+  Organization ID.
+</ParamField>
+
+### Response
+
+Returns an array of domain objects:
+
+<ResponseField name="id" type="string" required>
+  Domain ID from WorkOS.
+</ResponseField>
+
+<ResponseField name="domain" type="string" required>
+  Domain name (e.g., "example.com").
+</ResponseField>
+
+<ResponseField name="state" type="string" required>
+  Verification state. One of: `"pending"`, `"verified"`, `"failed"`, `"legacy_verified"`.
+</ResponseField>
+
+<ResponseField name="verificationToken" type="string">
+  TXT record value for domain verification.
+</ResponseField>
+
+### Errors
+
+- `OrganizationNotFoundError` - Organization does not exist
+- `UnauthorizedError` - User lacks permission
+- `InternalServerError` - Unexpected server error
+
+<CodeGroup>
+
+```typescript TypeScript
+const domains = yield* client.call("organization.listDomains", {
+  id: "org_123"
+});
+
+for (const domain of domains) {
+  console.log(`${domain.domain}: ${domain.state}`);
+}
+```
+
+```javascript JavaScript
+const domains = await client.call("organization.listDomains", {
+  id: "org_123"
+});
+
+for (const domain of domains) {
+  console.log(`${domain.domain}: ${domain.state}`);
+}
+```
+
+</CodeGroup>
+
+---
+
+## Add domain
+
+Adds a domain to an organization for verification. Only admins and owners can add domains.
+
+<ParamField body="id" type="string" required>
+  Organization ID.
+</ParamField>
+
+<ParamField body="domain" type="string" required>
+  Domain name to add (e.g., "example.com").
+</ParamField>
+
+### Response
+
+<ResponseField name="id" type="string" required>
+  Domain ID from WorkOS.
+</ResponseField>
+
+<ResponseField name="domain" type="string" required>
+  Domain name.
+</ResponseField>
+
+<ResponseField name="state" type="string" required>
+  Verification state (will be "pending" for new domains).
+</ResponseField>
+
+<ResponseField name="verificationToken" type="string">
+  TXT record value to add to DNS for verification.
+</ResponseField>
+
+### Errors
+
+- `OrganizationNotFoundError` - Organization does not exist
+- `UnauthorizedError` - User lacks permission
+- `InternalServerError` - Unexpected server error
+
+<CodeGroup>
+
+```typescript TypeScript
+const domain = yield* client.call("organization.addDomain", {
+  id: "org_123",
+  domain: "example.com"
+});
+
+console.log(`Add this TXT record: ${domain.verificationToken}`);
+```
+
+```javascript JavaScript
+const domain = await client.call("organization.addDomain", {
+  id: "org_123",
+  domain: "example.com"
+});
+
+console.log(`Add this TXT record: ${domain.verificationToken}`);
+```
+
+</CodeGroup>
+
+---
+
+## Remove domain
+
+Removes a domain from an organization. Only admins and owners can remove domains.
+
+<ParamField body="id" type="string" required>
+  Organization ID.
+</ParamField>
+
+<ParamField body="domainId" type="string" required>
+  Domain ID to remove.
+</ParamField>
+
+### Response
+
+<ResponseField name="success" type="boolean" required>
+  Always `true` on successful deletion.
+</ResponseField>
+
+### Errors
+
+- `OrganizationNotFoundError` - Organization does not exist
+- `UnauthorizedError` - User lacks permission
+- `InternalServerError` - Unexpected server error
+
+<CodeGroup>
+
+```typescript TypeScript
+const result = yield* client.call("organization.removeDomain", {
+  id: "org_123",
+  domainId: "domain_456"
+});
+```
+
+```javascript JavaScript
+const result = await client.call("organization.removeDomain", {
+  id: "org_123",
+  domainId: "domain_456"
+});
+```
+
+</CodeGroup>

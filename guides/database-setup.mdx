@@ -1,0 +1,660 @@
+---
+title: Database Setup
+description: Configure PostgreSQL, run migrations, and work with Drizzle ORM in Hazel Chat
+icon: database
+---
+
+Hazel Chat uses PostgreSQL with Drizzle ORM for type-safe database operations. This guide covers database setup, schema management, and migrations.
+
+## PostgreSQL Requirements
+
+### Version
+
+Hazel Chat requires **PostgreSQL 14 or later** with logical replication enabled.
+
+### Electric SQL Configuration
+
+Electric SQL requires specific PostgreSQL settings for real-time replication:
+
+```sql
+-- Required for Electric SQL
+wal_level = logical
+max_wal_senders = 10
+max_replication_slots = 5
+hot_standby = on
+hot_standby_feedback = on
+
+-- Recommended for performance
+max_connections = 200
+shared_buffers = 256MB
+effective_cache_size = 1GB
+```
+
+<Warning>
+  **Electric SQL will not work without `wal_level=logical`**. This must be set before initializing the database.
+</Warning>
+
+## Quick Start
+
+### Using Docker (Recommended)
+
+The easiest way to set up PostgreSQL is using Docker Compose:
+
+<Steps>
+  <Step title="Start PostgreSQL">
+    ```bash
+    docker compose up -d postgres
+    ```
+
+    This starts PostgreSQL 17 with all required configuration.
+  </Step>
+
+  <Step title="Wait for health check">
+    ```bash
+    docker compose ps postgres
+    ```
+
+    Wait until the status shows `healthy`.
+  </Step>
+
+  <Step title="Initialize database">
+    ```bash
+    cd packages/db
+    bun run db:push
+    ```
+
+    This creates all tables and indexes.
+  </Step>
+</Steps>
+
+### Manual PostgreSQL Setup
+
+If you prefer to run PostgreSQL outside Docker:
+
+<Steps>
+  <Step title="Install PostgreSQL">
+    ```bash
+    # macOS
+    brew install postgresql@17
+
+    # Ubuntu/Debian
+    sudo apt install postgresql-17
+    ```
+  </Step>
+
+  <Step title="Configure postgresql.conf">
+    Edit `/etc/postgresql/17/main/postgresql.conf`:
+
+    ```conf
+    wal_level = logical
+    max_wal_senders = 10
+    max_replication_slots = 5
+    hot_standby = on
+    hot_standby_feedback = on
+    max_connections = 200
+    ```
+  </Step>
+
+  <Step title="Restart PostgreSQL">
+    ```bash
+    sudo systemctl restart postgresql
+    ```
+  </Step>
+
+  <Step title="Create database">
+    ```bash
+    createdb -U postgres app
+    ```
+  </Step>
+
+  <Step title="Set DATABASE_URL">
+    ```bash
+    export DATABASE_URL="postgresql://user:password@localhost:5432/app"
+    ```
+  </Step>
+</Steps>
+
+## Drizzle ORM
+
+### Overview
+
+Hazel Chat uses [Drizzle ORM](https://orm.drizzle.team/) for:
+
+- **Type-safe queries** - Full TypeScript inference
+- **Schema-first design** - Define schema in TypeScript
+- **Migration management** - Automatic migration generation
+- **Effect-TS integration** - Functional error handling
+
+### Project Structure
+
+```
+packages/db/
+├── src/
+│   ├── schema/           # Table definitions
+│   │   ├── users.ts
+│   │   ├── organizations.ts
+│   │   ├── channels.ts
+│   │   ├── messages.ts
+│   │   └── index.ts      # Schema exports
+│   ├── services/         # Database services
+│   │   ├── database.ts   # Database layer
+│   │   └── model-repository.ts
+│   └── index.ts
+├── drizzle/              # Generated migrations
+├── drizzle.config.ts     # Drizzle configuration
+└── package.json
+```
+
+### Configuration
+
+Drizzle is configured in `drizzle.config.ts`:
+
+```typescript title="packages/db/drizzle.config.ts"
+import { defineConfig } from "drizzle-kit"
+
+export default defineConfig({
+  dialect: "postgresql",
+  schema: "./src/schema/index.ts",
+  out: "./drizzle",
+  dbCredentials: {
+    url: process.env.DATABASE_URL!
+  },
+  verbose: true,
+  strict: true,
+  migrations: {
+    table: "drizzle_migrations",
+    schema: "public"
+  }
+})
+```
+
+## Schema Definition
+
+### Example Schema
+
+Schemas are defined using Drizzle's TypeScript API:
+
+```typescript title="packages/db/src/schema/users.ts"
+import { pgTable, text, timestamp, uuid, boolean } from "drizzle-orm/pg-core"
+
+export const usersTable = pgTable("users", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  externalId: text("external_id").notNull().unique(),
+  email: text("email").notNull(),
+  firstName: text("first_name").notNull(),
+  lastName: text("last_name").notNull(),
+  avatarUrl: text("avatar_url"),
+  userType: text("user_type").notNull().default("user"), // 'user' | 'machine'
+  isOnboarded: boolean("is_onboarded").notNull().default(false),
+  timezone: text("timezone"),
+  settings: jsonb("settings"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  deletedAt: timestamp("deleted_at")
+})
+```
+
+### Core Tables
+
+Hazel Chat includes these core tables:
+
+| Table | Description |
+|-------|-------------|
+| **users** | User accounts and profiles |
+| **organizations** | Multi-tenant organizations |
+| **channels** | Chat channels (public/private) |
+| **channel_members** | Channel membership |
+| **messages** | Chat messages |
+| **attachments** | File attachments |
+| **bots** | Bot accounts |
+| **bot_installations** | Bot installations per org |
+| **notifications** | User notifications |
+| **pinned_messages** | Pinned message references |
+| **integration_connections** | External integrations |
+
+See the complete schema in `packages/db/src/schema/`.
+
+## Migrations
+
+### Generating Migrations
+
+When you modify the schema, generate a migration:
+
+```bash
+cd packages/db
+bun run db:generate
+```
+
+This creates a new migration file in `drizzle/` with SQL statements.
+
+### Applying Migrations
+
+<CodeGroup>
+```bash Development (Push)
+# Push schema directly (no migration files)
+bun run db:push
+```
+
+```bash Production (Migrate)
+# Apply migration files
+bun run db:migrate
+```
+</CodeGroup>
+
+<Info>
+  **Development**: Use `db:push` for rapid iteration without migration files.
+  
+  **Production**: Use `db:migrate` to apply migrations safely with rollback support.
+</Info>
+
+### Migration Commands
+
+```json title="packages/db/package.json"
+{
+  "scripts": {
+    "db:push": "drizzle-kit push --force",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "db:studio": "drizzle-kit studio"
+  }
+}
+```
+
+### Drizzle Studio
+
+Explore your database with Drizzle Studio:
+
+```bash
+cd packages/db
+bun run db:studio
+```
+
+Open http://localhost:4983 to browse tables, run queries, and edit data.
+
+## Database Layer
+
+### Database Service
+
+The `Database` service provides Effect-TS integration:
+
+```typescript title="packages/db/src/services/database.ts"
+import { Database } from "@hazel/db"
+import { Effect, Layer } from "effect"
+
+// Create database layer
+export const DatabaseLive = Layer.unwrapEffect(
+  Effect.gen(function* () {
+    return Database.layer({
+      url: Redacted.make(process.env.DATABASE_URL),
+      ssl: true
+    })
+  })
+)
+
+// Use in your app
+const program = Effect.gen(function* () {
+  const db = yield* Database.Database
+
+  // Execute queries
+  const users = yield* db.execute(
+    (client) => client.select().from(usersTable)
+  )
+})
+```
+
+### Transaction Context
+
+The database layer provides automatic transaction context propagation:
+
+```typescript
+import { Database } from "@hazel/db"
+import { Effect } from "effect"
+
+const createUserWithOrg = Effect.gen(function* () {
+  const db = yield* Database.Database
+
+  // All operations inside transaction use the same tx
+  return yield* db.transaction(
+    Effect.gen(function* () {
+      const user = yield* UserRepo.insert({ email: "alice@example.com" })
+      const org = yield* OrganizationRepo.insert({ name: "ACME" })
+      const member = yield* OrgMemberRepo.insert({ userId: user.id, orgId: org.id })
+
+      return { user, org, member }
+    })
+  )
+})
+```
+
+<Note>
+  **No manual transaction threading required!** The transaction client is automatically available via Effect Context.
+</Note>
+
+## Repository Pattern
+
+### Creating a Repository
+
+Repositories provide type-safe CRUD operations:
+
+```typescript title="packages/backend-core/src/repos/user.repo.ts"
+import { ModelRepository, schema } from "@hazel/db"
+import { User } from "@hazel/domain/models"
+import { Effect } from "effect"
+
+export class UserRepo extends Effect.Service<UserRepo>()("UserRepo", {
+  accessors: true,
+  effect: Effect.gen(function* () {
+    const baseRepo = yield* ModelRepository.makeRepository(
+      schema.usersTable,
+      User.Model,
+      {
+        idColumn: "id",
+        name: "User"
+      }
+    )
+
+    return baseRepo
+  }),
+  dependencies: [DatabaseLive]
+}) {}
+```
+
+### Repository Methods
+
+All repositories include:
+
+```typescript
+// Create
+const user = yield* UserRepo.insert({
+  email: "alice@example.com",
+  firstName: "Alice",
+  lastName: "Smith"
+})
+
+// Read
+const userOption = yield* UserRepo.findById(userId)
+const user = yield* UserRepo.with(userId, (user) => Effect.succeed(user))
+
+// Update
+const updated = yield* UserRepo.update({
+  id: userId,
+  firstName: "Alice Updated"
+})
+
+// Delete
+yield* UserRepo.deleteById(userId)
+```
+
+### Custom Queries
+
+Add custom methods to repositories:
+
+```typescript
+export class UserRepo extends Effect.Service<UserRepo>()("UserRepo", {
+  accessors: true,
+  effect: Effect.gen(function* () {
+    const baseRepo = yield* ModelRepository.makeRepository(/*...*/)
+    const db = yield* Database.Database
+
+    const findByEmail = (email: string, tx?: TxFn) =>
+      db.makeQuery(
+        (execute, data) =>
+          execute((client) =>
+            client
+              .select()
+              .from(schema.usersTable)
+              .where(eq(schema.usersTable.email, data.email))
+          ),
+        policyRequire("User", "select")
+      )({ email }, tx)
+
+    const findByExternalId = (externalId: string, tx?: TxFn) =>
+      db.makeQuery(
+        (execute, data) =>
+          execute((client) =>
+            client
+              .select()
+              .from(schema.usersTable)
+              .where(eq(schema.usersTable.externalId, data.externalId))
+          ),
+        policyRequire("User", "select")
+      )({ externalId }, tx)
+
+    return {
+      ...baseRepo,
+      findByEmail,
+      findByExternalId
+    }
+  })
+}) {}
+```
+
+## Policy-Based Authorization
+
+The database layer integrates with authorization policies:
+
+```typescript
+import { policyRequire, policyUse } from "@hazel/backend-core"
+
+// Define policy requirement in repository
+const insert = (data, tx?) =>
+  db.makeQueryWithSchema(
+    schema.insert,
+    (execute, input) => execute((client) => client.insert(table).values(input)),
+    policyRequire("User", "create")  // Require policy check
+  )(data, tx)
+
+// Provide policy in route handler
+yield* UserRepo.insert(data).pipe(
+  policyUse(UserPolicy.canCreate(organizationId))
+)
+```
+
+## Connection Management
+
+### Connection String Format
+
+```bash
+DATABASE_URL=postgresql://[user]:[password]@[host]:[port]/[database]?[params]
+```
+
+### SSL/TLS Configuration
+
+<CodeGroup>
+```bash Development
+DATABASE_URL=postgresql://user:password@localhost:5432/app
+```
+
+```bash Production
+DATABASE_URL=postgresql://user:password@postgres.example.com:5432/app?sslmode=verify-full
+```
+</CodeGroup>
+
+### Connection Pooling
+
+For production, use connection pooling:
+
+```bash
+# PgBouncer
+DATABASE_URL=postgresql://user:password@pgbouncer:6432/app?sslmode=require
+
+# Supabase Pooler
+DATABASE_URL=postgresql://user:password@db.xxx.supabase.co:6543/postgres?pgbouncer=true
+```
+
+## Database Seeding
+
+Create seed data for development:
+
+```typescript title="scripts/seed.ts"
+import { UserRepo, OrganizationRepo } from "@hazel/backend-core"
+import { Database } from "@hazel/db"
+import { Effect, Layer } from "effect"
+
+const seed = Effect.gen(function* () {
+  const db = yield* Database.Database
+
+  yield* db.transaction(
+    Effect.gen(function* () {
+      // Create test user
+      const user = yield* UserRepo.insert({
+        externalId: "user_test_123",
+        email: "test@example.com",
+        firstName: "Test",
+        lastName: "User",
+        userType: "user",
+        isOnboarded: true
+      })
+
+      // Create test organization
+      const org = yield* OrganizationRepo.insert({
+        name: "Test Organization",
+        slug: "test-org"
+      })
+
+      console.log("Seed data created")
+    })
+  )
+}).pipe(
+  Effect.provide(DatabaseLive),
+  Effect.provide(UserRepo.Default),
+  Effect.provide(OrganizationRepo.Default)
+)
+
+// Run seed
+Effect.runPromise(seed)
+```
+
+## Backup and Restore
+
+### Backup Database
+
+```bash
+# Full backup
+pg_dump -U user -d app -f backup.sql
+
+# Schema only
+pg_dump -U user -d app --schema-only -f schema.sql
+
+# Data only
+pg_dump -U user -d app --data-only -f data.sql
+```
+
+### Restore Database
+
+```bash
+# Restore full backup
+psql -U user -d app < backup.sql
+
+# Restore to new database
+createdb app_restored
+psql -U user -d app_restored < backup.sql
+```
+
+## Troubleshooting
+
+### Common Issues
+
+<AccordionGroup>
+  <Accordion title="Migration fails with 'relation already exists'">
+    Reset the database and reapply migrations:
+
+    ```bash
+    # Drop and recreate database
+    dropdb app
+    createdb app
+
+    # Reapply migrations
+    cd packages/db
+    bun run db:push
+    ```
+  </Accordion>
+
+  <Accordion title="Electric SQL not syncing">
+    Verify WAL level is set to logical:
+
+    ```sql
+    SHOW wal_level;  -- Should return 'logical'
+    ```
+
+    If not, update `postgresql.conf` and restart:
+    ```conf
+    wal_level = logical
+    ```
+  </Accordion>
+
+  <Accordion title="Connection pool exhausted">
+    Increase max_connections or use connection pooling:
+
+    ```sql
+    ALTER SYSTEM SET max_connections = 200;
+    SELECT pg_reload_conf();
+    ```
+  </Accordion>
+
+  <Accordion title="Slow queries">
+    Enable query logging to identify slow queries:
+
+    ```sql
+    -- Log queries slower than 1 second
+    SET log_min_duration_statement = 1000;
+    ```
+
+    Add indexes for frequently queried columns.
+  </Accordion>
+</AccordionGroup>
+
+## Performance Optimization
+
+### Indexing Strategy
+
+Create indexes for:
+- Foreign keys
+- Frequently queried columns
+- Sort/filter columns
+
+```typescript
+import { index } from "drizzle-orm/pg-core"
+
+export const messagesTable = pgTable("messages", {
+  // ...
+}, (table) => ({
+  channelIdIdx: index("messages_channel_id_idx").on(table.channelId),
+  createdAtIdx: index("messages_created_at_idx").on(table.createdAt)
+}))
+```
+
+### Query Optimization
+
+```typescript
+// Bad: N+1 queries
+for (const user of users) {
+  const org = yield* OrganizationRepo.findById(user.organizationId)
+}
+
+// Good: Single query with join
+const usersWithOrgs = yield* db.execute(
+  (client) =>
+    client
+      .select()
+      .from(usersTable)
+      .leftJoin(organizationsTable, eq(usersTable.organizationId, organizationsTable.id))
+)
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Repository Pattern" icon="layer-group" href="/packages/backend-core">
+    Learn about repositories and services
+  </Card>
+  <Card title="Deployment" icon="rocket" href="/guides/deployment">
+    Deploy database to production
+  </Card>
+  <Card title="Environment Variables" icon="terminal" href="/guides/environment-variables">
+    Database configuration reference
+  </Card>
+  <Card title="Electric SQL" icon="bolt" href="/architecture/electric-sql">
+    Real-time sync architecture
+  </Card>
+</CardGroup>

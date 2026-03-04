@@ -1,0 +1,265 @@
+---
+title: 'Organization members API'
+description: 'Manage organization members, roles, and metadata'
+icon: 'users'
+---
+
+## Overview
+
+The Organization Members API manages user memberships within organizations. Each member has a role (owner, admin, or member) that determines their permissions within the organization.
+
+All operations require authentication and are subject to role-based access control policies.
+
+## Roles
+
+Organization members can have one of three roles:
+
+- `owner` - Full administrative access, can delete the organization
+- `admin` - Can manage members, channels, and organization settings
+- `member` - Standard user with access to organization channels
+
+## Create organization member
+
+Adds a user to an organization. The authenticated user is automatically set as the member being created. Requires appropriate permissions to add members to the organization.
+
+<ParamField body="organizationId" type="string" required>
+  The organization ID to add the member to.
+</ParamField>
+
+<ParamField body="role" type="string" required>
+  Member role. One of: `"owner"`, `"admin"`, `"member"`.
+</ParamField>
+
+<ParamField body="nickname" type="string">
+  Optional nickname for the member within this organization.
+</ParamField>
+
+<ParamField body="joinedAt" type="string">
+  ISO 8601 timestamp of when the member joined. Defaults to current time.
+</ParamField>
+
+<ParamField body="invitedBy" type="string">
+  User ID of the person who invited this member.
+</ParamField>
+
+### Response
+
+<ResponseField name="data" type="object" required>
+  <Expandable title="properties">
+    <ResponseField name="id" type="string" required>
+      Unique organization member identifier (OrganizationMemberId).
+    </ResponseField>
+    
+    <ResponseField name="organizationId" type="string" required>
+      Organization ID.
+    </ResponseField>
+    
+    <ResponseField name="userId" type="string" required>
+      User ID of the member.
+    </ResponseField>
+    
+    <ResponseField name="role" type="string" required>
+      Member role: `"owner"`, `"admin"`, or `"member"`.
+    </ResponseField>
+    
+    <ResponseField name="nickname" type="string">
+      Member's nickname in this organization.
+    </ResponseField>
+    
+    <ResponseField name="joinedAt" type="string" required>
+      ISO 8601 timestamp of when the member joined.
+    </ResponseField>
+    
+    <ResponseField name="invitedBy" type="string">
+      User ID of the inviter.
+    </ResponseField>
+    
+    <ResponseField name="deletedAt" type="string">
+      ISO 8601 timestamp of deletion (null if active).
+    </ResponseField>
+    
+    <ResponseField name="createdAt" type="string" required>
+      ISO 8601 timestamp of creation.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="transactionId" type="string" required>
+  Transaction ID for optimistic UI updates.
+</ResponseField>
+
+### Errors
+
+- `OrganizationNotFoundError` - Organization does not exist
+- `UnauthorizedError` - User lacks permission
+- `InternalServerError` - Unexpected server error
+
+<CodeGroup>
+
+```typescript TypeScript
+const result = yield* client.call("organizationMember.create", {
+  organizationId: "org_123",
+  role: "member"
+});
+```
+
+```javascript JavaScript
+const result = await client.call("organizationMember.create", {
+  organizationId: "org_123",
+  role: "member"
+});
+```
+
+</CodeGroup>
+
+---
+
+## Update organization member
+
+Updates an existing organization member's role and settings. Only users with appropriate permissions can update organization members.
+
+<ParamField body="id" type="string" required>
+  Organization member ID to update.
+</ParamField>
+
+<ParamField body="role" type="string">
+  New role: `"owner"`, `"admin"`, or `"member"`.
+</ParamField>
+
+<ParamField body="nickname" type="string">
+  New nickname.
+</ParamField>
+
+### Response
+
+Returns the same structure as create organization member.
+
+### Errors
+
+- `OrganizationMemberNotFoundError` - Organization member does not exist
+- `UnauthorizedError` - User lacks permission
+- `InternalServerError` - Unexpected server error
+
+<CodeGroup>
+
+```typescript TypeScript
+const result = yield* client.call("organizationMember.update", {
+  id: "member_123",
+  role: "admin"
+});
+```
+
+```javascript JavaScript
+const result = await client.call("organizationMember.update", {
+  id: "member_123",
+  role: "admin"
+});
+```
+
+</CodeGroup>
+
+---
+
+## Update organization member metadata
+
+Updates an organization member's metadata, such as onboarding data. Used to store additional information like role preferences and use cases from onboarding flows.
+
+<ParamField body="id" type="string" required>
+  Organization member ID to update.
+</ParamField>
+
+<ParamField body="metadata" type="object" required>
+  Metadata object containing custom fields.
+  
+  <Expandable title="properties">
+    <ParamField body="metadata.role" type="string">
+      User's role or job title.
+    </ParamField>
+    
+    <ParamField body="metadata.useCases" type="string[]">
+      Array of use cases the user is interested in.
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+### Response
+
+Returns the same structure as create organization member.
+
+### Errors
+
+- `OrganizationMemberNotFoundError` - Organization member does not exist
+- `UnauthorizedError` - User lacks permission
+- `InternalServerError` - Unexpected server error
+
+<CodeGroup>
+
+```typescript TypeScript
+const result = yield* client.call("organizationMember.updateMetadata", {
+  id: "member_123",
+  metadata: {
+    role: "Engineering Manager",
+    useCases: ["team-collaboration", "project-management"]
+  }
+});
+```
+
+```javascript JavaScript
+const result = await client.call("organizationMember.updateMetadata", {
+  id: "member_123",
+  metadata: {
+    role: "Engineering Manager",
+    useCases: ["team-collaboration", "project-management"]
+  }
+});
+```
+
+</CodeGroup>
+
+---
+
+## Delete organization member
+
+Removes a user from an organization (soft delete). Only users with appropriate permissions can remove organization members.
+
+<ParamField body="id" type="string" required>
+  Organization member ID to delete.
+</ParamField>
+
+### Response
+
+<ResponseField name="transactionId" type="string" required>
+  Transaction ID for optimistic UI updates.
+</ResponseField>
+
+### Errors
+
+- `OrganizationMemberNotFoundError` - Organization member does not exist
+- `UnauthorizedError` - User lacks permission
+- `InternalServerError` - Unexpected server error
+
+<CodeGroup>
+
+```typescript TypeScript
+const result = yield* client.call("organizationMember.delete", {
+  id: "member_123"
+});
+```
+
+```javascript JavaScript
+const result = await client.call("organizationMember.delete", {
+  id: "member_123"
+});
+```
+
+</CodeGroup>
+
+## Related APIs
+
+<Card title="Organizations" icon="building" href="/api/organizations">
+  Manage organizations and settings
+</Card>
+
+<Card title="Invitations" icon="envelope" href="/api/invitations">
+  Send and manage organization invitations
+</Card>

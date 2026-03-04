@@ -1,0 +1,379 @@
+---
+title: RSS Subscriptions API
+description: Subscribe channels to RSS/Atom feeds and manage feed polling
+---
+
+## Overview
+
+The RSS Subscriptions API allows you to subscribe channels to RSS or Atom feeds. New feed items are automatically posted to the subscribed channel at regular intervals.
+
+Hazel Chat polls feeds periodically and posts new items as messages. Each subscription tracks the last fetched item to avoid duplicates.
+
+---
+
+## rssSubscription.create
+
+Subscribe a channel to an RSS or Atom feed.
+
+<ParamField path="channelId" type="ChannelId" required>
+  Channel to receive feed items
+</ParamField>
+
+<ParamField path="feedUrl" type="string" required>
+  URL of the RSS or Atom feed
+</ParamField>
+
+<ParamField path="pollingIntervalMinutes" type="number" default={15}>
+  How often to check the feed for new items (in minutes)
+</ParamField>
+
+<ResponseField name="data" type="RssSubscription">
+  The created subscription
+  <Expandable title="properties">
+    <ResponseField name="id" type="RssSubscriptionId">
+      Unique subscription identifier
+    </ResponseField>
+    <ResponseField name="channelId" type="ChannelId">
+      Channel receiving feed items
+    </ResponseField>
+    <ResponseField name="organizationId" type="OrganizationId">
+      Organization that owns this subscription
+    </ResponseField>
+    <ResponseField name="feedUrl" type="string">
+      RSS/Atom feed URL
+    </ResponseField>
+    <ResponseField name="feedTitle" type="string | null">
+      Feed title (auto-detected from feed)
+    </ResponseField>
+    <ResponseField name="feedIconUrl" type="string | null">
+      Feed icon URL (auto-detected from feed)
+    </ResponseField>
+    <ResponseField name="lastFetchedAt" type="Date | null">
+      Last time the feed was successfully fetched
+    </ResponseField>
+    <ResponseField name="lastItemPublishedAt" type="Date | null">
+      Publication date of the last item posted
+    </ResponseField>
+    <ResponseField name="lastItemGuid" type="string | null">
+      GUID of the last item posted (to detect duplicates)
+    </ResponseField>
+    <ResponseField name="consecutiveErrors" type="number">
+      Number of consecutive fetch errors (resets on success)
+    </ResponseField>
+    <ResponseField name="lastErrorMessage" type="string | null">
+      Last error message if fetching failed
+    </ResponseField>
+    <ResponseField name="lastErrorAt" type="Date | null">
+      Timestamp of last error
+    </ResponseField>
+    <ResponseField name="isEnabled" type="boolean">
+      Whether subscription is active
+    </ResponseField>
+    <ResponseField name="pollingIntervalMinutes" type="number">
+      Polling interval in minutes
+    </ResponseField>
+    <ResponseField name="createdBy" type="UserId">
+      User who created the subscription
+    </ResponseField>
+    <ResponseField name="createdAt" type="Date">
+      Creation timestamp
+    </ResponseField>
+    <ResponseField name="updatedAt" type="Date | null">
+      Last update timestamp
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="transactionId" type="TransactionId">
+  Transaction ID for optimistic updates
+</ResponseField>
+
+**Errors:**
+- `ChannelNotFoundError` - Channel doesn't exist
+- `RssSubscriptionExistsError` - Channel is already subscribed to this feed
+- `RssFeedValidationError` - Feed URL is invalid or feed cannot be parsed
+- `UnauthorizedError` - User is not authorized
+- `InternalServerError` - Server error
+
+<CodeGroup>
+```typescript Example
+const result = await client.rpc("rssSubscription.create", {
+  channelId: "channel_123",
+  feedUrl: "https://blog.example.com/feed.xml",
+  pollingIntervalMinutes: 30 // Check every 30 minutes
+})
+
+console.log("Subscribed to:", result.data.feedTitle)
+console.log("Polling every:", result.data.pollingIntervalMinutes, "minutes")
+```
+
+```typescript Default Polling Interval
+const result = await client.rpc("rssSubscription.create", {
+  channelId: "channel_123",
+  feedUrl: "https://news.ycombinator.com/rss"
+  // Uses default 15 minute interval
+})
+```
+</CodeGroup>
+
+---
+
+## rssSubscription.list
+
+List all RSS subscriptions for a specific channel.
+
+<ParamField path="channelId" type="ChannelId" required>
+  Channel identifier
+</ParamField>
+
+<ResponseField name="data" type="RssSubscription[]">
+  Array of subscriptions for the channel
+</ResponseField>
+
+**Errors:**
+- `ChannelNotFoundError` - Channel doesn't exist
+- `UnauthorizedError` - User is not authorized
+- `InternalServerError` - Server error
+
+<CodeGroup>
+```typescript Example
+const result = await client.rpc("rssSubscription.list", {
+  channelId: "channel_123"
+})
+
+for (const sub of result.data) {
+  console.log(`Feed: ${sub.feedTitle || sub.feedUrl}`)
+  console.log(`Status: ${sub.isEnabled ? "Active" : "Disabled"}`)
+  if (sub.consecutiveErrors > 0) {
+    console.log(`⚠️  ${sub.consecutiveErrors} consecutive errors`)
+  }
+}
+```
+</CodeGroup>
+
+---
+
+## rssSubscription.listByOrganization
+
+List all RSS subscriptions across all channels in your organization.
+
+<ResponseField name="data" type="RssSubscription[]">
+  Array of all subscriptions in the organization
+</ResponseField>
+
+**Errors:**
+- `UnauthorizedError` - User is not authenticated
+- `InternalServerError` - Server error
+
+<CodeGroup>
+```typescript Example
+const result = await client.rpc("rssSubscription.listByOrganization", {})
+
+console.log(`Total RSS subscriptions: ${result.data.length}`)
+
+// Find feeds with errors
+const failing = result.data.filter(s => s.consecutiveErrors > 3)
+console.log(`Feeds with errors: ${failing.length}`)
+
+for (const sub of failing) {
+  console.log(`❌ ${sub.feedUrl}: ${sub.lastErrorMessage}`)
+}
+```
+</CodeGroup>
+
+---
+
+## rssSubscription.update
+
+Update an RSS subscription's settings.
+
+<ParamField path="id" type="RssSubscriptionId" required>
+  Subscription identifier
+</ParamField>
+
+<ParamField path="isEnabled" type="boolean">
+  Enable or disable the subscription
+</ParamField>
+
+<ParamField path="pollingIntervalMinutes" type="number">
+  New polling interval in minutes
+</ParamField>
+
+<ResponseField name="data" type="RssSubscription">
+  Updated subscription object
+</ResponseField>
+
+<ResponseField name="transactionId" type="TransactionId">
+  Transaction ID for optimistic updates
+</ResponseField>
+
+**Errors:**
+- `RssSubscriptionNotFoundError` - Subscription doesn't exist
+- `UnauthorizedError` - User is not authorized
+- `InternalServerError` - Server error
+
+<CodeGroup>
+```typescript Temporarily Disable
+await client.rpc("rssSubscription.update", {
+  id: "rsssub_abc123",
+  isEnabled: false
+})
+
+console.log("Feed temporarily paused")
+```
+
+```typescript Change Polling Interval
+await client.rpc("rssSubscription.update", {
+  id: "rsssub_abc123",
+  pollingIntervalMinutes: 60 // Check once per hour
+})
+```
+
+```typescript Re-enable After Errors
+// If a feed was having errors, fix and re-enable
+await client.rpc("rssSubscription.update", {
+  id: "rsssub_abc123",
+  isEnabled: true
+})
+```
+</CodeGroup>
+
+---
+
+## rssSubscription.delete
+
+Delete an RSS subscription (soft delete). The channel will stop receiving feed items.
+
+<ParamField path="id" type="RssSubscriptionId" required>
+  Subscription identifier
+</ParamField>
+
+<ResponseField name="transactionId" type="TransactionId">
+  Transaction ID for optimistic updates
+</ResponseField>
+
+**Errors:**
+- `RssSubscriptionNotFoundError` - Subscription doesn't exist
+- `UnauthorizedError` - User is not authorized
+- `InternalServerError` - Server error
+
+<CodeGroup>
+```typescript Example
+await client.rpc("rssSubscription.delete", {
+  id: "rsssub_abc123"
+})
+
+console.log("RSS subscription removed")
+```
+</CodeGroup>
+
+---
+
+## Polling Behavior
+
+### How Polling Works
+
+1. Hazel Chat fetches the feed at the specified interval
+2. Compares new items against `lastItemGuid` to detect duplicates
+3. Posts new items to the channel
+4. Updates `lastFetchedAt` and `lastItemPublishedAt`
+5. On error, increments `consecutiveErrors` and stores error message
+
+### Error Handling
+
+When a feed fails to fetch:
+- `consecutiveErrors` is incremented
+- `lastErrorMessage` and `lastErrorAt` are updated
+- Polling continues at the same interval
+- When fetch succeeds, `consecutiveErrors` resets to 0
+
+<CodeGroup>
+```typescript Monitor Feed Health
+const result = await client.rpc("rssSubscription.list", {
+  channelId: "channel_123"
+})
+
+for (const sub of result.data) {
+  if (sub.consecutiveErrors >= 5) {
+    console.log(`⚠️  Feed may be broken: ${sub.feedUrl}`)
+    console.log(`Last error: ${sub.lastErrorMessage}`)
+    console.log(`Failed since: ${sub.lastErrorAt}`)
+    
+    // Consider disabling the subscription
+    await client.rpc("rssSubscription.update", {
+      id: sub.id,
+      isEnabled: false
+    })
+  }
+}
+```
+</CodeGroup>
+
+---
+
+## Recommended Polling Intervals
+
+<CodeGroup>
+```typescript High-Frequency Feeds (News, Social)
+// Check every 5-15 minutes
+await client.rpc("rssSubscription.create", {
+  channelId: "news_channel",
+  feedUrl: "https://news.ycombinator.com/rss",
+  pollingIntervalMinutes: 10
+})
+```
+
+```typescript Blog Feeds
+// Check every 30-60 minutes
+await client.rpc("rssSubscription.create", {
+  channelId: "engineering_blog",
+  feedUrl: "https://engineering.example.com/feed.xml",
+  pollingIntervalMinutes: 60
+})
+```
+
+```typescript Low-Frequency Feeds (Releases, Announcements)
+// Check every 2-4 hours
+await client.rpc("rssSubscription.create", {
+  channelId: "releases_channel",
+  feedUrl: "https://github.com/myorg/myrepo/releases.atom",
+  pollingIntervalMinutes: 120
+})
+```
+</CodeGroup>
+
+---
+
+## Example: Multi-Feed News Channel
+
+<CodeGroup>
+```typescript Subscribe to Multiple Sources
+const newsFeeds = [
+  { url: "https://news.ycombinator.com/rss", interval: 15 },
+  { url: "https://lobste.rs/rss", interval: 30 },
+  { url: "https://www.reddit.com/r/programming/.rss", interval: 20 },
+  { url: "https://thenewstack.io/feed/", interval: 60 }
+]
+
+const channelId = "tech_news_channel"
+
+for (const feed of newsFeeds) {
+  try {
+    await client.rpc("rssSubscription.create", {
+      channelId,
+      feedUrl: feed.url,
+      pollingIntervalMinutes: feed.interval
+    })
+    console.log(`✓ Subscribed to ${feed.url}`)
+  } catch (error) {
+    if (error._tag === "RssFeedValidationError") {
+      console.error(`✗ Invalid feed: ${feed.url}`, error.message)
+    } else if (error._tag === "RssSubscriptionExistsError") {
+      console.log(`- Already subscribed: ${feed.url}`)
+    } else {
+      throw error
+    }
+  }
+}
+```
+</CodeGroup>

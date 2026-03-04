@@ -1,0 +1,526 @@
+---
+title: Bots API
+description: Create and manage bots, install marketplace bots, and register commands
+---
+
+## Overview
+
+The Bots API allows you to create custom bots with specific permissions (scopes), manage bot lifecycle, regenerate API tokens, and provide a marketplace for installing public bots. Bots can respond to commands, send messages, and integrate with external services via webhooks.
+
+## Bot Scopes
+
+Scopes define what permissions a bot has:
+
+- `messages:read` - Read messages in channels
+- `messages:write` - Send messages to channels
+- `channels:read` - Read channel information
+- `channels:write` - Create and modify channels
+- `users:read` - Read user information
+- `reactions:write` - Add reactions to messages
+- `commands:register` - Register slash commands
+
+---
+
+## Bot Management
+
+These methods are for bot creators to manage their bots.
+
+### bot.create
+
+Create a new bot with specified scopes and permissions. Returns a plain API token that is only shown once.
+
+<ParamField path="name" type="string" required>
+  Bot name (1-100 characters)
+</ParamField>
+
+<ParamField path="description" type="string">
+  Bot description (max 500 characters)
+</ParamField>
+
+<ParamField path="webhookUrl" type="string">
+  URL to receive bot events and command invocations
+</ParamField>
+
+<ParamField path="scopes" type="BotScope[]" required>
+  Array of permission scopes for the bot
+</ParamField>
+
+<ParamField path="isPublic" type="boolean" default={false}>
+  Whether the bot is listed in the public marketplace
+</ParamField>
+
+<ResponseField name="data" type="Bot">
+  The created bot object
+  <Expandable title="properties">
+    <ResponseField name="id" type="BotId">
+      Unique bot identifier
+    </ResponseField>
+    <ResponseField name="userId" type="UserId">
+      ID of the machine user created for this bot
+    </ResponseField>
+    <ResponseField name="createdBy" type="UserId">
+      ID of the user who created the bot
+    </ResponseField>
+    <ResponseField name="name" type="string">
+      Bot name
+    </ResponseField>
+    <ResponseField name="description" type="string | null">
+      Bot description
+    </ResponseField>
+    <ResponseField name="webhookUrl" type="string | null">
+      Webhook URL for events
+    </ResponseField>
+    <ResponseField name="scopes" type="string[] | null">
+      Array of permission scopes
+    </ResponseField>
+    <ResponseField name="isPublic" type="boolean">
+      Whether bot is public in marketplace
+    </ResponseField>
+    <ResponseField name="installCount" type="number">
+      Number of organizations that have installed this bot
+    </ResponseField>
+    <ResponseField name="mentionable" type="boolean">
+      Whether the bot can be @mentioned
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="token" type="string">
+  Plain API token - only returned on creation, store securely
+</ResponseField>
+
+<ResponseField name="transactionId" type="TransactionId">
+  Transaction ID for optimistic updates
+</ResponseField>
+
+**Errors:**
+- `UnauthorizedError` - User is not authenticated
+- `RateLimitExceededError` - Too many requests
+- `InternalServerError` - Server error
+
+<CodeGroup>
+```typescript Example
+const result = await client.rpc("bot.create", {
+  name: "GitHub Bot",
+  description: "Sends GitHub notifications to channels",
+  webhookUrl: "https://example.com/bot/webhook",
+  scopes: ["messages:write", "channels:read"],
+  isPublic: true
+})
+
+console.log("Bot created:", result.data.id)
+console.log("API Token (save this!):", result.token)
+```
+</CodeGroup>
+
+---
+
+### bot.list
+
+List all bots created by users in your organization.
+
+<ResponseField name="data" type="Bot[]">
+  Array of bots created in your organization
+</ResponseField>
+
+**Errors:**
+- `UnauthorizedError` - User is not authenticated
+- `InternalServerError` - Server error
+
+<CodeGroup>
+```typescript Example
+const result = await client.rpc("bot.list", {})
+console.log(`Found ${result.data.length} bots`)
+```
+</CodeGroup>
+
+---
+
+### bot.get
+
+Get details for a specific bot by ID.
+
+<ParamField path="id" type="BotId" required>
+  Bot identifier
+</ParamField>
+
+<ResponseField name="data" type="Bot">
+  Bot object
+</ResponseField>
+
+<ResponseField name="transactionId" type="TransactionId">
+  Transaction ID for optimistic updates
+</ResponseField>
+
+**Errors:**
+- `BotNotFoundError` - Bot doesn't exist
+- `UnauthorizedError` - User is not org admin or bot creator
+- `InternalServerError` - Server error
+
+<CodeGroup>
+```typescript Example
+const result = await client.rpc("bot.get", {
+  id: "bot_abc123"
+})
+console.log("Bot:", result.data.name)
+```
+</CodeGroup>
+
+---
+
+### bot.update
+
+Update bot configuration including name, description, webhook URL, scopes, or visibility.
+
+<ParamField path="id" type="BotId" required>
+  Bot identifier
+</ParamField>
+
+<ParamField path="name" type="string">
+  New bot name (1-100 characters)
+</ParamField>
+
+<ParamField path="description" type="string | null">
+  New description (max 500 characters), set to null to clear
+</ParamField>
+
+<ParamField path="webhookUrl" type="string | null">
+  New webhook URL, set to null to clear
+</ParamField>
+
+<ParamField path="scopes" type="BotScope[]">
+  New array of permission scopes
+</ParamField>
+
+<ParamField path="isPublic" type="boolean">
+  Whether bot should be public in marketplace
+</ParamField>
+
+<ResponseField name="data" type="Bot">
+  Updated bot object
+</ResponseField>
+
+<ResponseField name="transactionId" type="TransactionId">
+  Transaction ID for optimistic updates
+</ResponseField>
+
+**Errors:**
+- `BotNotFoundError` - Bot doesn't exist
+- `UnauthorizedError` - User is not org admin or bot creator
+- `RateLimitExceededError` - Too many requests
+- `InternalServerError` - Server error
+
+<CodeGroup>
+```typescript Example
+const result = await client.rpc("bot.update", {
+  id: "bot_abc123",
+  name: "GitHub Bot v2",
+  scopes: ["messages:write", "channels:read", "reactions:write"]
+})
+```
+</CodeGroup>
+
+---
+
+### bot.delete
+
+Soft delete a bot. The bot will be disabled and hidden but can potentially be restored.
+
+<ParamField path="id" type="BotId" required>
+  Bot identifier
+</ParamField>
+
+<ResponseField name="transactionId" type="TransactionId">
+  Transaction ID for optimistic updates
+</ResponseField>
+
+**Errors:**
+- `BotNotFoundError` - Bot doesn't exist
+- `UnauthorizedError` - User is not org admin or bot creator
+- `InternalServerError` - Server error
+
+<CodeGroup>
+```typescript Example
+await client.rpc("bot.delete", {
+  id: "bot_abc123"
+})
+```
+</CodeGroup>
+
+---
+
+### bot.regenerateToken
+
+Generate a new API token for a bot. The old token is invalidated immediately.
+
+<ParamField path="id" type="BotId" required>
+  Bot identifier
+</ParamField>
+
+<ResponseField name="data" type="Bot">
+  Bot object with updated token hash
+</ResponseField>
+
+<ResponseField name="token" type="string">
+  New plain API token - store securely
+</ResponseField>
+
+<ResponseField name="transactionId" type="TransactionId">
+  Transaction ID for optimistic updates
+</ResponseField>
+
+**Errors:**
+- `BotNotFoundError` - Bot doesn't exist
+- `UnauthorizedError` - User is not org admin or bot creator
+- `RateLimitExceededError` - Too many requests
+- `InternalServerError` - Server error
+
+<CodeGroup>
+```typescript Example
+const result = await client.rpc("bot.regenerateToken", {
+  id: "bot_abc123"
+})
+console.log("New token (save this!):", result.token)
+```
+</CodeGroup>
+
+---
+
+### bot.updateAvatar
+
+Update the bot's avatar image URL.
+
+<ParamField path="id" type="BotId" required>
+  Bot identifier
+</ParamField>
+
+<ParamField path="avatarUrl" type="string" required>
+  URL to the bot's avatar image
+</ParamField>
+
+<ResponseField name="data" type="Bot">
+  Updated bot object
+</ResponseField>
+
+<ResponseField name="transactionId" type="TransactionId">
+  Transaction ID for optimistic updates
+</ResponseField>
+
+**Errors:**
+- `BotNotFoundError` - Bot doesn't exist
+- `UnauthorizedError` - User is not bot creator
+- `InternalServerError` - Server error
+
+<CodeGroup>
+```typescript Example
+await client.rpc("bot.updateAvatar", {
+  id: "bot_abc123",
+  avatarUrl: "https://example.com/avatars/bot.png"
+})
+```
+</CodeGroup>
+
+---
+
+### bot.getCommands
+
+List all commands registered by a bot.
+
+<ParamField path="botId" type="BotId" required>
+  Bot identifier
+</ParamField>
+
+<ResponseField name="data" type="BotCommand[]">
+  Array of bot commands
+  <Expandable title="BotCommand properties">
+    <ResponseField name="id" type="BotCommandId">
+      Command identifier
+    </ResponseField>
+    <ResponseField name="botId" type="BotId">
+      Bot that owns this command
+    </ResponseField>
+    <ResponseField name="name" type="string">
+      Command name (used in /command)
+    </ResponseField>
+    <ResponseField name="description" type="string">
+      Command description
+    </ResponseField>
+    <ResponseField name="arguments" type="BotCommandArgument[] | null">
+      Array of command arguments
+    </ResponseField>
+    <ResponseField name="usageExample" type="string | null">
+      Example of how to use the command
+    </ResponseField>
+    <ResponseField name="isEnabled" type="boolean">
+      Whether the command is currently active
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+**Errors:**
+- `BotNotFoundError` - Bot doesn't exist
+- `UnauthorizedError` - User is not org admin
+- `InternalServerError` - Server error
+
+<CodeGroup>
+```typescript Example
+const result = await client.rpc("bot.getCommands", {
+  botId: "bot_abc123"
+})
+console.log(`Bot has ${result.data.length} commands`)
+```
+</CodeGroup>
+
+---
+
+## Bot Marketplace
+
+These methods are for users to discover and install public bots.
+
+### bot.listPublic
+
+Browse all public bots available for installation. Returns bots with their installation status for your organization.
+
+<ParamField path="search" type="string">
+  Optional search query to filter bots
+</ParamField>
+
+<ResponseField name="data" type="PublicBotInfo[]">
+  Array of public bots
+  <Expandable title="PublicBotInfo properties">
+    <ResponseField name="...Bot fields" type="Bot">
+      All standard Bot fields
+    </ResponseField>
+    <ResponseField name="isInstalled" type="boolean">
+      Whether your organization has installed this bot
+    </ResponseField>
+    <ResponseField name="creatorName" type="string">
+      Name of the user/org that created the bot
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+**Errors:**
+- `UnauthorizedError` - User is not authenticated
+- `InternalServerError` - Server error
+
+<CodeGroup>
+```typescript Example
+const result = await client.rpc("bot.listPublic", {
+  search: "github"
+})
+
+for (const bot of result.data) {
+  console.log(`${bot.name} by ${bot.creatorName}`)
+  console.log(`Installed: ${bot.isInstalled}`)
+}
+```
+</CodeGroup>
+
+---
+
+### bot.listInstalled
+
+List all bots installed in your organization.
+
+<ResponseField name="data" type="Bot[]">
+  Array of installed bots
+</ResponseField>
+
+**Errors:**
+- `UnauthorizedError` - User is not authenticated
+- `InternalServerError` - Server error
+
+<CodeGroup>
+```typescript Example
+const result = await client.rpc("bot.listInstalled", {})
+console.log(`${result.data.length} bots installed`)
+```
+</CodeGroup>
+
+---
+
+### bot.install
+
+Install a public bot to your organization.
+
+<ParamField path="botId" type="BotId" required>
+  ID of the public bot to install
+</ParamField>
+
+<ResponseField name="transactionId" type="TransactionId">
+  Transaction ID for optimistic updates
+</ResponseField>
+
+**Errors:**
+- `BotNotFoundError` - Bot doesn't exist or is not public
+- `BotAlreadyInstalledError` - Bot is already installed
+- `UnauthorizedError` - User is not org admin
+- `RateLimitExceededError` - Too many requests
+- `InternalServerError` - Server error
+
+<CodeGroup>
+```typescript Example
+await client.rpc("bot.install", {
+  botId: "bot_abc123"
+})
+console.log("Bot installed successfully")
+```
+</CodeGroup>
+
+---
+
+### bot.installById
+
+Install a bot by ID, regardless of whether it's public or private. This allows users to install bots by sharing their bot ID directly.
+
+<ParamField path="botId" type="BotId" required>
+  ID of the bot to install
+</ParamField>
+
+<ResponseField name="transactionId" type="TransactionId">
+  Transaction ID for optimistic updates
+</ResponseField>
+
+**Errors:**
+- `BotNotFoundError` - Bot doesn't exist
+- `BotAlreadyInstalledError` - Bot is already installed
+- `UnauthorizedError` - User is not org admin
+- `RateLimitExceededError` - Too many requests
+- `InternalServerError` - Server error
+
+<CodeGroup>
+```typescript Example
+await client.rpc("bot.installById", {
+  botId: "bot_xyz789"
+})
+```
+</CodeGroup>
+
+---
+
+### bot.uninstall
+
+Remove a bot from your organization.
+
+<ParamField path="botId" type="BotId" required>
+  ID of the bot to uninstall
+</ParamField>
+
+<ResponseField name="transactionId" type="TransactionId">
+  Transaction ID for optimistic updates
+</ResponseField>
+
+**Errors:**
+- `BotNotFoundError` - Bot is not installed
+- `UnauthorizedError` - User is not org admin
+- `RateLimitExceededError` - Too many requests
+- `InternalServerError` - Server error
+
+<CodeGroup>
+```typescript Example
+await client.rpc("bot.uninstall", {
+  botId: "bot_abc123"
+})
+```
+</CodeGroup>

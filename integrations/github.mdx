@@ -1,0 +1,360 @@
+---
+title: GitHub Integration
+description: Subscribe channels to GitHub repositories for real-time notifications
+---
+
+Connect GitHub repositories to Hazel Chat channels and receive real-time notifications for commits, pull requests, issues, releases, and workflow runs.
+
+## Overview
+
+The GitHub integration allows you to:
+
+- **Subscribe channels** to specific repositories
+- **Filter events** by type (push, pull_request, issues, release, deployment_status, workflow_run)
+- **Filter branches** for push events (e.g., only `main` branch)
+- **Enable/disable** subscriptions without deleting them
+
+Events are posted to subscribed channels as messages from the GitHub integration bot.
+
+## Setup
+
+<Steps>
+  <Step title="Install the GitHub App">
+    Install the Hazel GitHub App for your organization:
+    
+    1. Go to Settings → Integrations → GitHub
+    2. Click "Connect GitHub"
+    3. Select your GitHub organization
+    4. Choose which repositories to grant access to
+    5. Complete the installation
+    
+    The app will be linked to your Hazel organization via the GitHub installation ID.
+  </Step>
+  
+  <Step title="Create a Subscription">
+    Subscribe a channel to a repository:
+    
+    ```typescript
+    import { GitHubSubscriptionRpcs } from "@hazel/domain/rpc"
+    
+    const { data: subscription } = yield* rpc.githubSubscription.create({
+      channelId: "channel_abc123",
+      repositoryId: 123456789,
+      repositoryFullName: "acme/api",
+      repositoryOwner: "acme",
+      repositoryName: "api",
+      enabledEvents: [
+        "push",
+        "pull_request",
+        "issues",
+        "release"
+      ],
+      branchFilter: "main", // Optional: only notify for main branch
+    })
+    ```
+  </Step>
+  
+  <Step title="Configure Event Filters">
+    Update which events trigger notifications:
+    
+    ```typescript
+    const { data: subscription } = yield* rpc.githubSubscription.update({
+      id: subscriptionId,
+      enabledEvents: ["pull_request", "release"],
+      branchFilter: null, // All branches
+    })
+    ```
+  </Step>
+</Steps>
+
+## Supported Events
+
+The GitHub integration supports the following event types:
+
+| Event Type | Description | Branch Filter |
+|------------|-------------|---------------|
+| `push` | Commits pushed to repository | Yes |
+| `pull_request` | PR opened, updated, merged, or closed | No |
+| `issues` | Issue opened, updated, or closed | No |
+| `release` | Release published | No |
+| `deployment_status` | Deployment status changed | No |
+| `workflow_run` | GitHub Actions workflow completed | No |
+
+### Event Filtering Example
+
+```typescript
+// Only notify for PRs and releases
+enabledEvents: ["pull_request", "release"]
+
+// Notify for all event types
+enabledEvents: [
+  "push",
+  "pull_request",
+  "issues",
+  "release",
+  "deployment_status",
+  "workflow_run"
+]
+```
+
+## Webhook Processing
+
+GitHub webhooks are processed by the cluster service using a durable workflow:
+
+```typescript packages/domain/src/cluster/workflows/github-webhook-workflow.ts:5-28
+export const GitHubWebhookWorkflow = Workflow.make({
+  name: "GitHubWebhookWorkflow",
+  payload: {
+    // GitHub delivery ID for idempotency
+    deliveryId: Schema.String,
+    // Event type (push, pull_request, etc.)
+    eventType: Schema.String,
+    // Installation ID to find the organization
+    installationId: Schema.Number,
+    // Repository identification
+    repositoryId: Schema.Number,
+    repositoryFullName: Schema.String,
+    // Full GitHub event payload
+    eventPayload: Schema.Unknown,
+  },
+  error: GitHubWebhookWorkflowError,
+  // Use delivery ID for idempotency
+  idempotencyKey: (payload) => payload.deliveryId,
+})
+```
+
+The workflow:
+
+1. Receives webhook event from GitHub
+2. Finds all subscriptions for the repository
+3. Filters by enabled events and branch (if applicable)
+4. Creates formatted messages in subscribed channels
+5. Uses the delivery ID for idempotency (duplicate deliveries are ignored)
+
+## Managing Subscriptions
+
+### List Subscriptions
+
+<CodeGroup>
+```typescript By Channel
+const { data: subscriptions } = yield* rpc.githubSubscription.list({
+  channelId: "channel_abc123",
+})
+```
+
+```typescript By Organization
+const { data: subscriptions } = yield* rpc.githubSubscription.listByOrganization({})
+```
+</CodeGroup>
+
+### Update Subscription
+
+```typescript
+const { data: subscription } = yield* rpc.githubSubscription.update({
+  id: subscriptionId,
+  enabledEvents: ["push", "pull_request"],
+  branchFilter: "main",
+  isEnabled: true,
+})
+```
+
+### Disable Subscription
+
+Temporarily disable without deleting:
+
+```typescript
+const { data: subscription } = yield* rpc.githubSubscription.update({
+  id: subscriptionId,
+  isEnabled: false,
+})
+```
+
+### Delete Subscription
+
+```typescript
+const { transactionId } = yield* rpc.githubSubscription.delete({
+  id: subscriptionId,
+})
+```
+
+## Message Format
+
+GitHub events are posted as formatted messages with rich content:
+
+### Push Event
+
+```
+[acme/api] 3 new commits to main
+
+John Doe:
+- Fix authentication bug (#123)
+- Update dependencies
+- Add rate limiting
+
+https://github.com/acme/api/compare/abc123...def456
+```
+
+### Pull Request Event
+
+```
+[acme/api] Pull Request #42 opened by jane-dev
+
+Add user profile API
+
+Implements user profile endpoints with caching and validation.
+
+https://github.com/acme/api/pull/42
+```
+
+### Release Event
+
+```
+[acme/api] Release v2.1.0 published
+
+Bug fixes and performance improvements
+
+- Fix memory leak in websocket handler
+- Improve database query performance
+- Update to latest Effect-TS
+
+https://github.com/acme/api/releases/tag/v2.1.0
+```
+
+## RPC Schema Reference
+
+### Create Subscription
+
+```typescript packages/domain/src/rpc/github-subscriptions.ts:84-102
+Rpc.make("githubSubscription.create", {
+  payload: Schema.Struct({
+    channelId: ChannelId,
+    repositoryId: Schema.Number,
+    repositoryFullName: Schema.String,
+    repositoryOwner: Schema.String,
+    repositoryName: Schema.String,
+    enabledEvents: GitHubSubscription.GitHubEventTypes,
+    branchFilter: Schema.optional(Schema.NullOr(Schema.String)),
+  }),
+  success: GitHubSubscriptionResponse,
+  error: Schema.Union(
+    ChannelNotFoundError,
+    GitHubNotConnectedError,
+    GitHubSubscriptionExistsError,
+    UnauthorizedError,
+    InternalServerError,
+  ),
+}).middleware(AuthMiddleware)
+```
+
+### Update Subscription
+
+```typescript packages/domain/src/rpc/github-subscriptions.ts:145-154
+Rpc.make("githubSubscription.update", {
+  payload: Schema.Struct({
+    id: GitHubSubscriptionId,
+    enabledEvents: Schema.optional(GitHubSubscription.GitHubEventTypes),
+    branchFilter: Schema.optional(Schema.NullOr(Schema.String)),
+    isEnabled: Schema.optional(Schema.Boolean),
+  }),
+  success: GitHubSubscriptionResponse,
+  error: Schema.Union(GitHubSubscriptionNotFoundError, UnauthorizedError, InternalServerError),
+}).middleware(AuthMiddleware)
+```
+
+## Error Handling
+
+### Common Errors
+
+| Error | Cause | Solution |
+|-------|-------|----------|
+| `GitHubNotConnectedError` | GitHub App not installed | Install the Hazel GitHub App for your organization |
+| `GitHubSubscriptionExistsError` | Channel already subscribed to repository | Update the existing subscription or delete it first |
+| `ChannelNotFoundError` | Invalid channel ID | Verify the channel exists and you have access |
+| `UnauthorizedError` | User not authorized | Must be organization admin to manage subscriptions |
+
+### Error Example
+
+```typescript
+const result = yield* rpc.githubSubscription.create({
+  channelId: "channel_abc123",
+  repositoryId: 123456789,
+  // ...
+}).pipe(
+  Effect.catchTag("GitHubNotConnectedError", (error) =>
+    Effect.gen(function* () {
+      yield* Effect.log("GitHub not connected for this organization")
+      // Show instructions to install GitHub App
+    })
+  ),
+  Effect.catchTag("GitHubSubscriptionExistsError", (error) =>
+    Effect.gen(function* () {
+      yield* Effect.log(`Already subscribed: ${error.repositoryId}`)
+      // Fetch and update existing subscription
+    })
+  ),
+)
+```
+
+## Best Practices
+
+<Steps>
+  <Step title="Use Dedicated Channels">
+    Create separate channels for different repositories or event types:
+    
+    - `#engineering-api-releases` - Only release events
+    - `#engineering-api-prs` - Only PR events
+    - `#deployments` - Only deployment_status and workflow_run events
+  </Step>
+  
+  <Step title="Filter Events Carefully">
+    Only enable events that are relevant to avoid notification fatigue:
+    
+    ```typescript
+    // Good: Only critical events
+    enabledEvents: ["release", "deployment_status"]
+    
+    // Bad: All events (high volume)
+    enabledEvents: ["push", "pull_request", "issues", "release", "deployment_status", "workflow_run"]
+    ```
+  </Step>
+  
+  <Step title="Use Branch Filters">
+    For push events, filter to important branches:
+    
+    ```typescript
+    branchFilter: "main" // Only notify for main branch
+    branchFilter: "production" // Only notify for production branch
+    branchFilter: null // All branches (high volume)
+    ```
+  </Step>
+  
+  <Step title="Disable Instead of Delete">
+    Temporarily disable subscriptions instead of deleting:
+    
+    ```typescript
+    // Disable during maintenance
+    yield* rpc.githubSubscription.update({
+      id: subscriptionId,
+      isEnabled: false,
+    })
+    
+    // Re-enable later
+    yield* rpc.githubSubscription.update({
+      id: subscriptionId,
+      isEnabled: true,
+    })
+    ```
+  </Step>
+</Steps>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="RSS Feeds" icon="rss" href="/integrations/rss-feeds">
+    Subscribe to RSS feeds for automated content
+  </Card>
+  
+  <Card title="Webhooks" icon="webhook" href="/integrations/webhooks">
+    Create incoming webhooks for external notifications
+  </Card>
+</CardGroup>

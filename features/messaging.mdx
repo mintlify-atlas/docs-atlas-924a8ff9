@@ -1,0 +1,246 @@
+---
+title: Real-Time Messaging
+description: Send and receive messages instantly with rich text formatting, replies, and threads
+icon: message-lines
+---
+
+Hazel Chat provides a powerful real-time messaging system with instant delivery, rich text formatting, and advanced conversation features.
+
+## Overview
+
+Messages are the core of Hazel Chat. Every message is delivered in real-time to all channel members with support for:
+
+- Rich text formatting with Plate.js editor
+- Message replies and threads
+- File attachments and embeds
+- Message reactions
+- Pin important messages
+- Edit and delete capabilities
+
+<CardGroup cols={2}>
+  <Card title="Real-Time Delivery" icon="bolt">
+    Messages sync instantly using Electric SQL's local-first architecture with automatic conflict resolution
+  </Card>
+  <Card title="Offline Support" icon="wifi-slash">
+    Compose messages offline and they'll automatically sync when you reconnect
+  </Card>
+  <Card title="Rate Limited" icon="shield-check">
+    Protected with 60 requests per minute per user to prevent abuse
+  </Card>
+  <Card title="Rich Formatting" icon="text">
+    Full rich text editor with formatting, links, code blocks, and more
+  </Card>
+</CardGroup>
+
+## Sending Messages
+
+### Basic Messages
+
+To send a message in any channel:
+
+1. Click into the message input field at the bottom of the channel
+2. Type your message using the rich text editor
+3. Press **Enter** to send (or **Shift+Enter** for a new line)
+
+Messages are delivered instantly to all channel members who are online.
+
+<Note>
+  Messages support full Markdown-style formatting including **bold**, *italic*, `code`, and more through the Plate.js editor.
+</Note>
+
+### Message Attachments
+
+Attach files to your messages by:
+
+1. Click the attachment icon in the message composer
+2. Select files from your computer (stored in Cloudflare R2)
+3. Files are uploaded with a presigned URL for security
+4. Add your message text and send
+
+The system automatically creates an attachment record with "uploading" status, generates a presigned URL for direct upload, and marks it complete when finished.
+
+<Info>
+  Attachments support all common file types including images, videos, documents, and archives. Files are stored securely in Cloudflare R2 with public-read access.
+</Info>
+
+## Message Replies
+
+Reply to any message to create a threaded conversation:
+
+1. Hover over a message and click the **Reply** button
+2. The original message appears as context in your composer
+3. Type your reply and send
+
+Replies maintain the conversation context and make it easy to follow specific discussion threads within a channel.
+
+## Message Threads
+
+For longer conversations, create a dedicated thread channel:
+
+1. Hover over a message and click **Create Thread**
+2. A new thread channel is automatically created
+3. The original message is linked to the thread
+4. All thread participants are added as channel members
+
+Thread channels work exactly like regular channels but are organized under the parent message. The system ensures:
+
+- Threads cannot be nested (no threads within threads)
+- Thread creators are automatically added as members
+- AI-powered thread naming generates descriptive 3-6 word titles
+
+<Warning>
+  You cannot create threads within thread channels. This prevents deeply nested conversation structures that are difficult to navigate.
+</Warning>
+
+## AI-Powered Thread Naming
+
+Thread channels can automatically generate descriptive names:
+
+1. Open a thread channel with several messages
+2. Click **Generate Name** in the channel header
+3. AI analyzes the conversation context
+4. A descriptive 3-6 word name is generated
+
+The system uses the ThreadNamingWorkflow which:
+- Queries the original message and thread context
+- Sends conversation data to the AI provider
+- Generates a concise, descriptive name
+- Updates the channel name automatically
+
+## Editing Messages
+
+Edit your messages after sending:
+
+1. Hover over your message and click **Edit**
+2. Make your changes in the editor
+3. Press **Enter** to save or **Escape** to cancel
+
+Only message authors can edit their own messages. Edited messages show an "(edited)" indicator.
+
+<Info>
+  Message edits preserve the original creation timestamp but add an `updatedAt` field to track when changes were made.
+</Info>
+
+## Deleting Messages
+
+Remove messages from channels:
+
+1. Hover over a message and click the **Delete** button
+2. Confirm the deletion
+
+Deleted messages are soft-deleted (marked with `deletedAt` timestamp) rather than permanently removed from the database. This allows for:
+
+- Audit trails and compliance
+- Potential message recovery
+- Maintaining conversation integrity
+
+## Message Embeds
+
+Webhooks and bots can send messages with rich embeds:
+
+```json
+{
+  "content": "Deployment completed",
+  "embeds": [{
+    "title": "Production Deploy",
+    "description": "Successfully deployed to production",
+    "color": 5763719,
+    "author": {
+      "name": "Deploy Bot",
+      "iconUrl": "https://example.com/icon.png"
+    },
+    "fields": [
+      {"name": "Environment", "value": "Production", "inline": true},
+      {"name": "Duration", "value": "2m 34s", "inline": true}
+    ],
+    "badge": {
+      "text": "Success",
+      "color": 3066993
+    },
+    "timestamp": "2024-03-04T12:00:00Z"
+  }]
+}
+```
+
+Embeds support:
+- Title, description, and URL
+- Custom colors (hex as integer)
+- Author information with icon
+- Footer text and icon
+- Image and thumbnail
+- Custom fields (inline or full-width)
+- Status badges
+- Timestamps
+
+## Live State Updates
+
+Messages can include real-time updates for long-running operations:
+
+```json
+{
+  "embeds": [{
+    "title": "Deployment in Progress",
+    "liveState": {
+      "enabled": true,
+      "cached": {
+        "status": "active",
+        "progress": 45,
+        "text": "Building application...",
+        "data": {}
+      }
+    }
+  }]
+}
+```
+
+Live state enables:
+- Real-time progress indicators
+- Status updates for deployments or builds
+- Streaming AI responses
+- Dynamic message content
+
+The `cached` field provides a snapshot for non-realtime clients.
+
+## Search and Navigation
+
+Find messages quickly:
+
+- Use the command palette (**Cmd/Ctrl+K**) to search messages
+- Jump to specific messages via direct links
+- Navigate threads from parent messages
+- View pinned messages in the channel sidebar
+
+## Message Notifications
+
+Stay informed about new messages:
+
+- Receive notifications for mentions and replies
+- Notification count shown on channel members
+- Automatically clear notifications when messages are viewed
+- Mute channels to suppress notifications
+
+See the [Notifications](/features/notifications) documentation for more details.
+
+## Technical Details
+
+### Rate Limiting
+
+Message operations are rate-limited to **60 requests per minute per user** to prevent spam and abuse.
+
+### Data Model
+
+Each message includes:
+- `id` - Unique message identifier
+- `channelId` - Parent channel
+- `authorId` - Message author
+- `content` - Rich text content
+- `replyToMessageId` - Optional reply reference
+- `threadChannelId` - Optional thread channel link
+- `embeds` - Rich embed data (for webhooks/bots)
+- `createdAt` - Creation timestamp
+- `updatedAt` - Last edit timestamp
+- `deletedAt` - Soft delete timestamp
+
+### Transaction Support
+
+All message operations return a transaction ID for optimistic updates, enabling instant UI feedback before server confirmation.

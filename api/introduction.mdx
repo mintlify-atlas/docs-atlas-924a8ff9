@@ -1,0 +1,243 @@
+---
+title: API Introduction
+description: Overview of the Hazel Chat API architecture and getting started guide
+---
+
+## Overview
+
+The Hazel Chat API is built on **Effect RPC**, providing a type-safe, functional approach to API communication. The RPC system offers automatic serialization, error handling, and seamless integration between frontend and backend.
+
+### Key Features
+
+- **Type-Safe**: Full TypeScript type safety from client to server
+- **Effect-Based**: Built on Effect for composable, functional error handling
+- **Real-Time Ready**: HTTP and WebSocket support for live updates
+- **Automatic Serialization**: NDJSON protocol for efficient data transfer
+- **Authentication**: WorkOS-based authentication with session management
+- **Rate Limited**: Built-in rate limiting (60 requests/minute per user)
+
+## Architecture
+
+The API uses the Effect RPC framework with the following architecture:
+
+```
+Client (Web/Desktop/Bot)
+    ↓
+RPC Protocol Layer (HTTP/WebSocket)
+    ↓
+Authentication Middleware
+    ↓
+RPC Handlers
+    ↓
+Business Logic (Policies + Repositories)
+    ↓
+Database
+```
+
+### Base URL
+
+<CodeGroup>
+```bash Development
+http://localhost:3003
+```
+
+```bash Production
+https://api.hazel.sh
+```
+</CodeGroup>
+
+### RPC Endpoint
+
+All RPC calls are made to the `/rpc` endpoint:
+
+```
+POST {BASE_URL}/rpc
+```
+
+## Available RPC Groups
+
+The API is organized into the following RPC groups:
+
+| Group | Description |
+|-------|-------------|
+| `MessageRpcs` | Create, update, and delete messages |
+| `ChannelRpcs` | Manage channels, DMs, and threads |
+| `OrganizationRpcs` | Organization management |
+| `UserRpcs` | User profile and settings |
+| `NotificationRpcs` | Notification preferences |
+| `InvitationRpcs` | Workspace invitations |
+| `MessageReactionRpcs` | Message reactions (emoji) |
+| `TypingIndicatorRpcs` | Real-time typing indicators |
+| `ChannelMemberRpcs` | Channel membership |
+| `PinnedMessageRpcs` | Pin important messages |
+| `AttachmentRpcs` | File uploads and attachments |
+| `BotRpcs` | Bot management and commands |
+| `ChatSyncRpcs` | External chat integration sync |
+
+## Type-Safe Client Usage
+
+### Web/Desktop Client
+
+The frontend uses an Effect-based RPC client with automatic type inference:
+
+```typescript
+import { HazelRpcClient } from "~/lib/services/common/rpc-atom-client"
+import { Effect } from "effect"
+
+// Create a message
+const createMessage = Effect.gen(function* () {
+  const client = yield* HazelRpcClient
+  
+  const result = yield* client["message.create"]({
+    channelId: "channel-id-here",
+    content: "Hello, world!",
+    attachmentIds: []
+  })
+  
+  return result.data // Fully typed Message object
+})
+```
+
+### Bot SDK Client
+
+Bots use a simplified HTTP-based RPC client:
+
+```typescript
+import { makeBotRpcClient } from "@hazel/bot-sdk"
+import { Effect } from "effect"
+
+const program = Effect.gen(function* () {
+  const client = yield* makeBotRpcClient({
+    backendUrl: "https://api.hazel.sh",
+    botToken: process.env.BOT_TOKEN
+  })
+  
+  // Send a message
+  const result = yield* client["message.create"]({
+    channelId: "channel-id",
+    content: "Message from bot",
+    attachmentIds: []
+  })
+  
+  return result
+})
+```
+
+<Note>
+All RPC methods return an `Effect` that must be executed using Effect's runtime. Errors are typed and handled functionally.
+</Note>
+
+## Rate Limiting
+
+The API enforces rate limits to ensure fair usage:
+
+- **Message Operations**: 60 requests per minute per user
+- **Per-user tracking**: Rate limits are applied per authenticated user
+- **Response headers**: Rate limit information included in error responses
+
+When rate limited, you'll receive a `RateLimitExceededError` with retry information:
+
+```typescript
+{
+  _tag: "RateLimitExceededError",
+  message: "Rate limit exceeded",
+  retryAfterMs: 5000,
+  limit: 60,
+  remaining: 0
+}
+```
+
+<Warning>
+Implement exponential backoff when handling rate limit errors to avoid being temporarily blocked.
+</Warning>
+
+## Response Format
+
+All successful RPC responses include:
+
+1. **Data**: The requested resource(s)
+2. **Transaction ID**: For optimistic updates
+
+```typescript
+{
+  data: {
+    id: "msg_123",
+    content: "Hello, world!",
+    channelId: "ch_456",
+    authorId: "user_789",
+    createdAt: "2024-03-04T10:30:00Z",
+    // ... other fields
+  },
+  transactionId: "txn_abc123"
+}
+```
+
+<Info>
+Transaction IDs enable optimistic UI updates. The client can immediately show changes and reconcile them when the server response arrives.
+</Info>
+
+## Common RPC Methods
+
+### Message Operations
+
+```typescript
+// Create message
+client["message.create"]({
+  channelId: string,
+  content: string,
+  attachmentIds?: string[]
+})
+
+// Update message
+client["message.update"]({
+  id: string,
+  content?: string
+})
+
+// Delete message
+client["message.delete"]({
+  id: string
+})
+```
+
+### Channel Operations
+
+```typescript
+// Create channel
+client["channel.create"]({
+  name: string,
+  type: "public" | "private" | "thread",
+  organizationId: string,
+  addAllMembers?: boolean
+})
+
+// Create DM
+client["channel.createDm"]({
+  participantIds: string[],
+  type: "direct" | "single",
+  organizationId: string
+})
+
+// Create thread
+client["channel.createThread"]({
+  messageId: string,
+  organizationId?: string
+})
+
+// Generate AI thread name
+client["channel.generateName"]({
+  channelId: string
+})
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Authentication" icon="lock" href="/api/authentication">
+    Learn how to authenticate API requests with WorkOS
+  </Card>
+  
+  <Card title="Error Handling" icon="triangle-exclamation" href="/api/error-handling">
+    Understand error types and how to handle them
+  </Card>
+</CardGroup>

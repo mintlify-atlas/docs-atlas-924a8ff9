@@ -1,0 +1,412 @@
+---
+title: Pinned Messages API
+description: Pin and manage important messages in channels
+---
+
+The Pinned Messages API provides RPC methods for pinning important messages in channels. Pinned messages are highlighted and easily accessible, making them ideal for announcements, important information, or frequently referenced content.
+
+## Overview
+
+Pinned messages allow moderators and authorized users to highlight important messages in a channel. Each pinned message:
+
+- References a specific message in a channel
+- Tracks who pinned it and when
+- Remains accessible even as new messages arrive
+- Can be unpinned by authorized users
+
+Common use cases:
+- Channel guidelines and rules
+- Important announcements
+- Frequently asked questions
+- Event information
+- Resource links
+
+## Authentication
+
+All pinned message operations require authentication via `AuthMiddleware`. The `pinnedBy` field is automatically set from the authenticated user context.
+
+---
+
+## Methods
+
+### pinnedMessage.create
+
+Pins a message in a channel. The message will be added to the channel's list of pinned messages.
+
+<Note>
+  Only users with appropriate permissions (typically moderators or admins) can pin messages.
+</Note>
+
+<ParamField path="channelId" type="string (UUID)" required>
+  The ID of the channel containing the message
+</ParamField>
+
+<ParamField path="messageId" type="string (UUID)" required>
+  The ID of the message to pin
+</ParamField>
+
+#### Response
+
+<ResponseField name="data" type="PinnedMessage">
+  The created pinned message object
+  
+  <Expandable title="PinnedMessage fields">
+    <ResponseField name="id" type="string (UUID)">
+      Unique identifier for the pinned message record
+    </ResponseField>
+    
+    <ResponseField name="channelId" type="string (UUID)">
+      ID of the channel containing the pinned message
+    </ResponseField>
+    
+    <ResponseField name="messageId" type="string (UUID)">
+      ID of the message that was pinned
+    </ResponseField>
+    
+    <ResponseField name="pinnedBy" type="string (UUID)">
+      ID of the user who pinned the message
+    </ResponseField>
+    
+    <ResponseField name="pinnedAt" type="string (ISO 8601)">
+      Timestamp when the message was pinned
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="transactionId" type="string">
+  Transaction ID for optimistic UI updates
+</ResponseField>
+
+#### Errors
+
+- `MessageNotFoundError` - The specified message does not exist
+- `UnauthorizedError` - User lacks permission to pin messages in this channel
+- `InternalServerError` - An unexpected error occurred
+
+#### Example
+
+<CodeGroup>
+```typescript Effect
+import { RpcClient } from "@hazel/domain/rpc"
+import { Effect } from "effect"
+
+const pinMessage = Effect.gen(function* () {
+  const client = yield* RpcClient
+  
+  const result = yield* client.PinnedMessageCreate({
+    channelId: "550e8400-e29b-41d4-a716-446655440000",
+    messageId: "660e8400-e29b-41d4-a716-446655440001",
+  })
+  
+  console.log("Message pinned at:", result.data.pinnedAt)
+  console.log("Pinned by:", result.data.pinnedBy)
+  return result
+})
+```
+
+```typescript With Context Menu
+const handlePinFromMenu = (messageId: string) =>
+  Effect.gen(function* () {
+    const client = yield* RpcClient
+    
+    const result = yield* client.PinnedMessageCreate({
+      channelId: currentChannelId,
+      messageId,
+    })
+    
+    // Show success notification
+    showNotification("Message pinned successfully")
+    
+    return result
+  })
+```
+</CodeGroup>
+
+---
+
+### pinnedMessage.update
+
+Updates an existing pinned message. Only users with appropriate permissions can update pinned messages.
+
+<Warning>
+  This method is rarely used in practice, as pinned messages typically don't need updates. Consider unpinning and re-pinning instead if needed.
+</Warning>
+
+<ParamField path="id" type="string (UUID)" required>
+  The ID of the pinned message record to update
+</ParamField>
+
+#### Response
+
+<ResponseField name="data" type="PinnedMessage">
+  The updated pinned message object
+</ResponseField>
+
+<ResponseField name="transactionId" type="string">
+  Transaction ID for optimistic UI updates
+</ResponseField>
+
+#### Errors
+
+- `PinnedMessageNotFoundError` - The specified pinned message does not exist
+- `UnauthorizedError` - User lacks permission to update pinned messages
+- `InternalServerError` - An unexpected error occurred
+
+#### Example
+
+<CodeGroup>
+```typescript Effect
+import { RpcClient } from "@hazel/domain/rpc"
+import { Effect } from "effect"
+
+const updatePinnedMessage = Effect.gen(function* () {
+  const client = yield* RpcClient
+  
+  const result = yield* client.PinnedMessageUpdate({
+    id: "770e8400-e29b-41d4-a716-446655440002",
+    // Update fields as needed
+  })
+  
+  return result
+})
+```
+</CodeGroup>
+
+---
+
+### pinnedMessage.delete
+
+Unpins a message from a channel (hard delete). The pinned message record is permanently removed.
+
+<Info>
+  This only removes the pin - the original message remains in the channel.
+</Info>
+
+<ParamField path="id" type="string (UUID)" required>
+  The ID of the pinned message record to delete
+</ParamField>
+
+#### Response
+
+<ResponseField name="transactionId" type="string">
+  Transaction ID for optimistic UI updates
+</ResponseField>
+
+#### Errors
+
+- `PinnedMessageNotFoundError` - The specified pinned message does not exist
+- `UnauthorizedError` - User lacks permission to unpin messages
+- `InternalServerError` - An unexpected error occurred
+
+#### Example
+
+<CodeGroup>
+```typescript Effect
+import { RpcClient } from "@hazel/domain/rpc"
+import { Effect } from "effect"
+
+const unpinMessage = Effect.gen(function* () {
+  const client = yield* RpcClient
+  
+  const result = yield* client.PinnedMessageDelete({
+    id: "770e8400-e29b-41d4-a716-446655440002",
+  })
+  
+  console.log("Message unpinned, transaction:", result.transactionId)
+  return result
+})
+```
+
+```typescript With Confirmation
+const handleUnpin = (pinnedMessageId: string) =>
+  Effect.gen(function* () {
+    const confirmed = yield* confirmDialog(
+      "Are you sure you want to unpin this message?"
+    )
+    
+    if (!confirmed) return
+    
+    const client = yield* RpcClient
+    
+    yield* client.PinnedMessageDelete({
+      id: pinnedMessageId,
+    })
+    
+    showNotification("Message unpinned")
+  })
+```
+</CodeGroup>
+
+---
+
+## Best Practices
+
+### Limit Number of Pins
+
+Limit the number of pinned messages per channel to maintain their importance:
+
+```typescript
+const MAX_PINNED_MESSAGES = 5
+
+const pinMessageWithLimit = Effect.gen(function* () {
+  const client = yield* RpcClient
+  
+  // Get current pinned messages
+  const pinnedMessages = yield* getPinnedMessages(channelId)
+  
+  if (pinnedMessages.length >= MAX_PINNED_MESSAGES) {
+    // Ask user to unpin an existing message first
+    return yield* Effect.fail(
+      new Error(`Maximum ${MAX_PINNED_MESSAGES} pinned messages reached`)
+    )
+  }
+  
+  // Pin the new message
+  return yield* client.PinnedMessageCreate({
+    channelId,
+    messageId,
+  })
+})
+```
+
+### Show Pin Context
+
+When displaying pinned messages, show who pinned it and when:
+
+```typescript
+const PinnedMessageDisplay = ({ pinnedMessage, message }) => {
+  return (
+    <div className="pinned-message">
+      <div className="pin-icon">📌</div>
+      <div className="message-content">
+        {message.content}
+      </div>
+      <div className="pin-metadata">
+        Pinned by {pinnedMessage.pinnedBy.username}
+        {' on '}
+        {formatDate(pinnedMessage.pinnedAt)}
+      </div>
+    </div>
+  )
+}
+```
+
+### Permission Checks
+
+Check permissions before showing pin/unpin actions:
+
+```typescript
+const canPinMessages = Effect.gen(function* () {
+  const currentUser = yield* CurrentUser.Context
+  const channel = yield* getChannel(channelId)
+  
+  // Check if user has moderator or admin role
+  return (
+    currentUser.role === "moderator" ||
+    currentUser.role === "admin" ||
+    channel.ownerId === currentUser.id
+  )
+})
+
+const MessageContextMenu = ({ message }) => {
+  const canPin = useEffect(() => canPinMessages)
+  
+  return (
+    <ContextMenu>
+      {canPin && (
+        <MenuItem onClick={() => pinMessage(message.id)}>
+          📌 Pin Message
+        </MenuItem>
+      )}
+    </ContextMenu>
+  )
+}
+```
+
+### Optimistic Updates
+
+Implement optimistic updates for pin/unpin operations:
+
+```typescript
+const optimisticPin = Effect.gen(function* () {
+  const client = yield* RpcClient
+  
+  // Immediately show as pinned
+  addPinnedMessageToUI({
+    messageId,
+    channelId,
+    pinnedBy: currentUser.id,
+    pinnedAt: new Date().toISOString(),
+  })
+  
+  try {
+    // Send to server
+    const result = yield* client.PinnedMessageCreate({
+      channelId,
+      messageId,
+    })
+    
+    // Update with real data
+    updatePinnedMessageInUI(result.data)
+  } catch (error) {
+    // Revert on error
+    removePinnedMessageFromUI(messageId)
+    throw error
+  }
+})
+```
+
+### Pinned Messages View
+
+Provide a dedicated view for browsing pinned messages:
+
+```typescript
+const PinnedMessagesPanel = ({ channelId }) => {
+  const pinnedMessages = usePinnedMessages(channelId)
+  
+  return (
+    <div className="pinned-messages-panel">
+      <h3>Pinned Messages ({pinnedMessages.length})</h3>
+      {pinnedMessages.map((pinned) => (
+        <PinnedMessageItem
+          key={pinned.id}
+          pinnedMessage={pinned}
+          onUnpin={() => unpinMessage(pinned.id)}
+        />
+      ))}
+    </div>
+  )
+}
+```
+
+### Navigate to Original Message
+
+Allow users to jump to the original message in context:
+
+```typescript
+const navigateToMessage = (messageId: string) =>
+  Effect.gen(function* () {
+    // Scroll to message in channel
+    const messageElement = document.getElementById(`message-${messageId}`)
+    
+    if (messageElement) {
+      messageElement.scrollIntoView({ behavior: "smooth" })
+      // Highlight briefly
+      messageElement.classList.add("highlight")
+      setTimeout(() => {
+        messageElement.classList.remove("highlight")
+      }, 2000)
+    } else {
+      // Load message history if not visible
+      yield* loadMessageHistory(channelId, messageId)
+    }
+  })
+```
+
+---
+
+## Source Code Reference
+
+- RPC Contracts: `packages/domain/src/rpc/pinned-messages.ts`
+- PinnedMessage Model: `packages/domain/src/models/pinned-message-model.ts`
+- Backend Handlers: `apps/backend/src/rpc/handlers/pinned-messages.ts` (if exists)

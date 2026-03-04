@@ -1,0 +1,224 @@
+---
+title: Custom Emojis API
+description: Create, update, and manage custom emojis for your organization
+---
+
+## Overview
+
+The Custom Emojis API allows you to create organization-specific emojis that members can use in messages. Each emoji has a unique name within the organization and is associated with an image URL.
+
+---
+
+## customEmoji.create
+
+Create a new custom emoji for an organization.
+
+<ParamField path="organizationId" type="OrganizationId" required>
+  Organization identifier
+</ParamField>
+
+<ParamField path="name" type="string" required>
+  Emoji name (used as :name: in messages)
+</ParamField>
+
+<ParamField path="imageUrl" type="string" required>
+  URL to the emoji image
+</ParamField>
+
+<ResponseField name="data" type="CustomEmoji">
+  The created custom emoji
+  <Expandable title="properties">
+    <ResponseField name="id" type="CustomEmojiId">
+      Unique emoji identifier
+    </ResponseField>
+    <ResponseField name="organizationId" type="OrganizationId">
+      Organization that owns this emoji
+    </ResponseField>
+    <ResponseField name="name" type="string">
+      Emoji name
+    </ResponseField>
+    <ResponseField name="imageUrl" type="string">
+      URL to the emoji image
+    </ResponseField>
+    <ResponseField name="createdBy" type="UserId">
+      User who created the emoji
+    </ResponseField>
+    <ResponseField name="createdAt" type="Date">
+      Creation timestamp
+    </ResponseField>
+    <ResponseField name="updatedAt" type="Date | null">
+      Last update timestamp
+    </ResponseField>
+    <ResponseField name="deletedAt" type="Date | null">
+      Deletion timestamp (null if active)
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="transactionId" type="TransactionId">
+  Transaction ID for optimistic updates
+</ResponseField>
+
+**Errors:**
+- `CustomEmojiNameConflictError` - An emoji with this name already exists in the organization
+- `CustomEmojiDeletedExistsError` - A deleted emoji with this name exists (contains emoji info to offer restore)
+- `UnauthorizedError` - User lacks permission to create emojis
+- `InternalServerError` - Server error
+
+<CodeGroup>
+```typescript Example
+const result = await client.rpc("customEmoji.create", {
+  organizationId: "org_123",
+  name: "party",
+  imageUrl: "https://example.com/emojis/party.png"
+})
+
+console.log("Created emoji:", result.data.name)
+console.log("Use as :party: in messages")
+```
+
+```typescript Handle Deleted Emoji
+try {
+  await client.rpc("customEmoji.create", {
+    organizationId: "org_123",
+    name: "party",
+    imageUrl: "https://example.com/emojis/party.png"
+  })
+} catch (error) {
+  if (error._tag === "CustomEmojiDeletedExistsError") {
+    // Offer to restore the deleted emoji
+    console.log(`Emoji '${error.name}' was previously deleted`)
+    console.log(`Restore emoji ID: ${error.customEmojiId}`)
+    // Call customEmoji.restore instead
+  }
+}
+```
+</CodeGroup>
+
+---
+
+## customEmoji.update
+
+Update an existing custom emoji (rename).
+
+<ParamField path="id" type="CustomEmojiId" required>
+  Emoji identifier
+</ParamField>
+
+<ParamField path="name" type="string">
+  New emoji name
+</ParamField>
+
+<ResponseField name="data" type="CustomEmoji">
+  Updated emoji object
+</ResponseField>
+
+<ResponseField name="transactionId" type="TransactionId">
+  Transaction ID for optimistic updates
+</ResponseField>
+
+**Errors:**
+- `CustomEmojiNotFoundError` - Emoji doesn't exist
+- `CustomEmojiNameConflictError` - New name conflicts with existing emoji
+- `UnauthorizedError` - User lacks permission to update emojis
+- `InternalServerError` - Server error
+
+<CodeGroup>
+```typescript Example
+const result = await client.rpc("customEmoji.update", {
+  id: "emoji_abc123",
+  name: "party_parrot"
+})
+
+console.log("Renamed to:", result.data.name)
+```
+</CodeGroup>
+
+---
+
+## customEmoji.delete
+
+Soft-delete a custom emoji. The emoji will be hidden but can be restored later.
+
+<ParamField path="id" type="CustomEmojiId" required>
+  Emoji identifier
+</ParamField>
+
+<ResponseField name="transactionId" type="TransactionId">
+  Transaction ID for optimistic updates
+</ResponseField>
+
+**Errors:**
+- `CustomEmojiNotFoundError` - Emoji doesn't exist
+- `UnauthorizedError` - User lacks permission to delete emojis
+- `InternalServerError` - Server error
+
+<CodeGroup>
+```typescript Example
+await client.rpc("customEmoji.delete", {
+  id: "emoji_abc123"
+})
+
+console.log("Emoji deleted")
+```
+</CodeGroup>
+
+---
+
+## customEmoji.restore
+
+Restore a previously soft-deleted custom emoji.
+
+<ParamField path="id" type="CustomEmojiId" required>
+  Emoji identifier
+</ParamField>
+
+<ParamField path="imageUrl" type="string">
+  Optional new image URL (if the original is no longer available)
+</ParamField>
+
+<ResponseField name="data" type="CustomEmoji">
+  Restored emoji object
+</ResponseField>
+
+<ResponseField name="transactionId" type="TransactionId">
+  Transaction ID for optimistic updates
+</ResponseField>
+
+**Errors:**
+- `CustomEmojiNotFoundError` - Emoji doesn't exist
+- `CustomEmojiNameConflictError` - An active emoji with the same name now exists
+- `UnauthorizedError` - User lacks permission to restore emojis
+- `InternalServerError` - Server error
+
+<CodeGroup>
+```typescript Example
+const result = await client.rpc("customEmoji.restore", {
+  id: "emoji_abc123"
+})
+
+console.log("Restored emoji:", result.data.name)
+```
+
+```typescript Restore with New Image
+const result = await client.rpc("customEmoji.restore", {
+  id: "emoji_abc123",
+  imageUrl: "https://example.com/emojis/party_new.png"
+})
+```
+</CodeGroup>
+
+---
+
+## Usage in Messages
+
+Once created, custom emojis can be used in messages using the `:name:` syntax:
+
+<CodeGroup>
+```typescript Send Message with Custom Emoji
+await client.rpc("message.create", {
+  channelId: "channel_123",
+  content: "Great work team! :party:"
+})
+```
+</CodeGroup>

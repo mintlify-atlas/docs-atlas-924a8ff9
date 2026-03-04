@@ -1,0 +1,424 @@
+---
+title: Message Reactions API
+description: Add and manage emoji reactions on messages
+---
+
+The Message Reactions API provides RPC methods for managing emoji reactions on messages in Hazel Chat. Users can add reactions to express sentiment without sending a full message.
+
+## Overview
+
+Message reactions allow users to react to messages with emoji. Each reaction:
+
+- Is associated with a specific message and user
+- Contains a single emoji
+- Tracks when it was created
+- Can be toggled on/off
+
+Reactions are commonly used for:
+- Acknowledging messages
+- Expressing sentiment
+- Quick feedback
+- Voting or polling
+
+## Authentication
+
+All reaction operations require authentication via `AuthMiddleware`. The `userId` is automatically set from the authenticated user context.
+
+---
+
+## Methods
+
+### messageReaction.toggle
+
+Toggles a reaction on a message. If the user has already reacted with this emoji, the reaction will be removed. If not, a new reaction will be created.
+
+<Tip>
+  This is the recommended method for handling reactions in UI, as it handles both adding and removing reactions in a single call.
+</Tip>
+
+<ParamField path="messageId" type="string (UUID)" required>
+  The ID of the message to react to
+</ParamField>
+
+<ParamField path="channelId" type="string (UUID)" required>
+  The ID of the channel containing the message
+</ParamField>
+
+<ParamField path="emoji" type="string" required>
+  The emoji to react with (e.g., "👍", "❤️", ":smile:")
+</ParamField>
+
+#### Response
+
+<ResponseField name="wasCreated" type="boolean">
+  `true` if a new reaction was created, `false` if an existing reaction was removed
+</ResponseField>
+
+<ResponseField name="data" type="MessageReaction | undefined">
+  The reaction object if one was created, `undefined` if removed
+  
+  <Expandable title="MessageReaction fields">
+    <ResponseField name="id" type="string (UUID)">
+      Unique identifier for the reaction
+    </ResponseField>
+    
+    <ResponseField name="messageId" type="string (UUID)">
+      ID of the message being reacted to
+    </ResponseField>
+    
+    <ResponseField name="channelId" type="string (UUID)">
+      ID of the channel containing the message
+    </ResponseField>
+    
+    <ResponseField name="userId" type="string (UUID)">
+      ID of the user who created the reaction
+    </ResponseField>
+    
+    <ResponseField name="emoji" type="string">
+      The emoji used for the reaction
+    </ResponseField>
+    
+    <ResponseField name="createdAt" type="string (ISO 8601)">
+      Timestamp when the reaction was created
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="transactionId" type="string">
+  Transaction ID for optimistic UI updates
+</ResponseField>
+
+#### Errors
+
+- `MessageNotFoundError` - The specified message does not exist
+- `UnauthorizedError` - User lacks permission to react to this message
+- `InternalServerError` - An unexpected error occurred
+
+#### Example
+
+<CodeGroup>
+```typescript Effect
+import { RpcClient } from "@hazel/domain/rpc"
+import { Effect } from "effect"
+
+const toggleReaction = Effect.gen(function* () {
+  const client = yield* RpcClient
+  
+  const result = yield* client.MessageReactionToggle({
+    messageId: "550e8400-e29b-41d4-a716-446655440000",
+    channelId: "660e8400-e29b-41d4-a716-446655440001",
+    emoji: "👍",
+  })
+  
+  if (result.wasCreated) {
+    console.log("Reaction added:", result.data?.emoji)
+  } else {
+    console.log("Reaction removed")
+  }
+  
+  return result
+})
+```
+
+```typescript UI Integration
+const handleReactionClick = (emoji: string) =>
+  Effect.gen(function* () {
+    const client = yield* RpcClient
+    
+    // Toggle reaction
+    const result = yield* client.MessageReactionToggle({
+      messageId: currentMessage.id,
+      channelId: currentChannel.id,
+      emoji,
+    })
+    
+    // Update UI based on result
+    if (result.wasCreated) {
+      addReactionToUI(result.data!)
+    } else {
+      removeReactionFromUI(emoji)
+    }
+  })
+```
+</CodeGroup>
+
+---
+
+### messageReaction.create
+
+Creates a new reaction on a message. Use this when you want explicit control over reaction creation.
+
+<Note>
+  For most use cases, `messageReaction.toggle` is preferred as it handles both creation and removal.
+</Note>
+
+<ParamField path="messageId" type="string (UUID)" required>
+  The ID of the message to react to
+</ParamField>
+
+<ParamField path="channelId" type="string (UUID)" required>
+  The ID of the channel containing the message
+</ParamField>
+
+<ParamField path="emoji" type="string" required>
+  The emoji to react with
+</ParamField>
+
+#### Response
+
+<ResponseField name="data" type="MessageReaction">
+  The created reaction object (see messageReaction.toggle for fields)
+</ResponseField>
+
+<ResponseField name="transactionId" type="string">
+  Transaction ID for optimistic UI updates
+</ResponseField>
+
+#### Errors
+
+- `MessageNotFoundError` - The specified message does not exist
+- `UnauthorizedError` - User lacks permission to react to this message
+- `InternalServerError` - An unexpected error occurred
+
+#### Example
+
+<CodeGroup>
+```typescript Effect
+import { RpcClient } from "@hazel/domain/rpc"
+import { Effect } from "effect"
+
+const createReaction = Effect.gen(function* () {
+  const client = yield* RpcClient
+  
+  const result = yield* client.MessageReactionCreate({
+    messageId: "550e8400-e29b-41d4-a716-446655440000",
+    channelId: "660e8400-e29b-41d4-a716-446655440001",
+    emoji: "❤️",
+  })
+  
+  console.log("Reaction created:", result.data.id)
+  return result
+})
+```
+</CodeGroup>
+
+---
+
+### messageReaction.update
+
+Updates an existing message reaction. Only the reaction creator or users with appropriate permissions can update reactions.
+
+<ParamField path="id" type="string (UUID)" required>
+  The ID of the reaction to update
+</ParamField>
+
+<ParamField path="emoji" type="string">
+  New emoji for the reaction
+</ParamField>
+
+#### Response
+
+<ResponseField name="data" type="MessageReaction">
+  The updated reaction object
+</ResponseField>
+
+<ResponseField name="transactionId" type="string">
+  Transaction ID for optimistic UI updates
+</ResponseField>
+
+#### Errors
+
+- `MessageReactionNotFoundError` - The specified reaction does not exist
+- `UnauthorizedError` - User lacks permission to update this reaction
+- `InternalServerError` - An unexpected error occurred
+
+#### Example
+
+<CodeGroup>
+```typescript Effect
+import { RpcClient } from "@hazel/domain/rpc"
+import { Effect } from "effect"
+
+const updateReaction = Effect.gen(function* () {
+  const client = yield* RpcClient
+  
+  const result = yield* client.MessageReactionUpdate({
+    id: "770e8400-e29b-41d4-a716-446655440002",
+    emoji: "🎉",
+  })
+  
+  return result
+})
+```
+</CodeGroup>
+
+---
+
+### messageReaction.delete
+
+Deletes a message reaction. Only the reaction creator or users with appropriate permissions can delete reactions.
+
+<ParamField path="id" type="string (UUID)" required>
+  The ID of the reaction to delete
+</ParamField>
+
+#### Response
+
+<ResponseField name="transactionId" type="string">
+  Transaction ID for optimistic UI updates
+</ResponseField>
+
+#### Errors
+
+- `MessageReactionNotFoundError` - The specified reaction does not exist
+- `UnauthorizedError` - User lacks permission to delete this reaction
+- `InternalServerError` - An unexpected error occurred
+
+#### Example
+
+<CodeGroup>
+```typescript Effect
+import { RpcClient } from "@hazel/domain/rpc"
+import { Effect } from "effect"
+
+const deleteReaction = Effect.gen(function* () {
+  const client = yield* RpcClient
+  
+  const result = yield* client.MessageReactionDelete({
+    id: "770e8400-e29b-41d4-a716-446655440002",
+  })
+  
+  console.log("Reaction deleted, transaction:", result.transactionId)
+  return result
+})
+```
+</CodeGroup>
+
+---
+
+## Best Practices
+
+### Use Toggle for UI Interactions
+
+The toggle method is ideal for reaction buttons:
+
+```typescript
+const ReactionButton = ({ emoji, messageId, channelId }) => {
+  const handleClick = () =>
+    Effect.gen(function* () {
+      const client = yield* RpcClient
+      
+      yield* client.MessageReactionToggle({
+        messageId,
+        channelId,
+        emoji,
+      })
+    })
+  
+  return <button onClick={handleClick}>{emoji}</button>
+}
+```
+
+### Optimistic Updates
+
+Implement optimistic updates for instant feedback:
+
+```typescript
+const optimisticToggle = Effect.gen(function* () {
+  const client = yield* RpcClient
+  
+  // Immediately update UI
+  const hasReaction = toggleReactionInUI(emoji)
+  
+  try {
+    // Send to server
+    const result = yield* client.MessageReactionToggle({
+      messageId,
+      channelId,
+      emoji,
+    })
+    
+    // Verify UI matches server state
+    if (result.wasCreated !== hasReaction) {
+      // Revert if mismatch
+      toggleReactionInUI(emoji)
+    }
+  } catch (error) {
+    // Revert on error
+    toggleReactionInUI(emoji)
+  }
+})
+```
+
+### Emoji Validation
+
+Validate emoji before sending:
+
+```typescript
+const isValidEmoji = (str: string): boolean => {
+  const emojiRegex = /^(\p{Emoji}|:\w+:)$/u
+  return emojiRegex.test(str)
+}
+
+const safeToggle = (emoji: string) =>
+  Effect.gen(function* () {
+    if (!isValidEmoji(emoji)) {
+      return yield* Effect.fail(new Error("Invalid emoji"))
+    }
+    
+    const client = yield* RpcClient
+    return yield* client.MessageReactionToggle({
+      messageId,
+      channelId,
+      emoji,
+    })
+  })
+```
+
+### Reaction Aggregation
+
+Aggregate reactions for display:
+
+```typescript
+interface AggregatedReaction {
+  emoji: string
+  count: number
+  users: string[]
+  hasReacted: boolean
+}
+
+const aggregateReactions = (
+  reactions: MessageReaction[],
+  currentUserId: string
+): AggregatedReaction[] => {
+  const grouped = reactions.reduce((acc, reaction) => {
+    if (!acc[reaction.emoji]) {
+      acc[reaction.emoji] = {
+        emoji: reaction.emoji,
+        count: 0,
+        users: [],
+        hasReacted: false,
+      }
+    }
+    
+    acc[reaction.emoji].count++
+    acc[reaction.emoji].users.push(reaction.userId)
+    
+    if (reaction.userId === currentUserId) {
+      acc[reaction.emoji].hasReacted = true
+    }
+    
+    return acc
+  }, {} as Record<string, AggregatedReaction>)
+  
+  return Object.values(grouped)
+}
+```
+
+---
+
+## Source Code Reference
+
+- RPC Contracts: `packages/domain/src/rpc/message-reactions.ts`
+- MessageReaction Model: `packages/domain/src/models/message-reaction-model.ts`
+- Backend Handlers: `apps/backend/src/rpc/handlers/message-reactions.ts`

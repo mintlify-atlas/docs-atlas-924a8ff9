@@ -1,0 +1,320 @@
+---
+title: Notifications
+description: Stay informed with configurable notifications for mentions, replies, and channel activity
+icon: bell
+---
+
+Hazel Chat's notification system keeps you informed about important messages and activity without overwhelming you with noise.
+
+## Overview
+
+Notifications alert you to:
+
+- Direct mentions (@username)
+- Replies to your messages
+- Messages in direct message channels
+- Custom notification triggers from integrations
+
+The system uses smart notification management with automatic clearing, deduplication, and per-channel controls.
+
+<CardGroup cols={2}>
+  <Card title="Smart Deduplication" icon="layer-group">
+    Prevents duplicate notifications for the same message in a channel
+  </Card>
+  <Card title="Auto-Clear on View" icon="eye">
+    Notifications disappear when you view the messages in the viewport
+  </Card>
+  <Card title="Per-Channel Muting" icon="volume-xmark">
+    Mute specific channels while staying active in others
+  </Card>
+  <Card title="Status-Based" icon="circle-dot">
+    Suppress notifications when you set Do Not Disturb status
+  </Card>
+</CardGroup>
+
+## Receiving Notifications
+
+### Notification Sources
+
+You receive notifications for:
+
+**Direct Activity:**
+- Someone mentions you with @username
+- Someone replies to your message
+- New messages in 1:1 direct messages
+
+**Channel Activity:**
+- New messages in unmuted channels (shown as unread count)
+- @channel or @here mentions (if enabled)
+
+**System Events:**
+- Organization invitations
+- Role changes
+- Important system announcements
+
+<Note>
+  Notifications are member-scoped, meaning they're associated with your organization membership rather than your user account globally.
+</Note>
+
+### Notification Display
+
+Notifications appear in multiple places:
+
+**Notification Center:**
+- Click the bell icon in the header
+- Shows all unread notifications
+- Grouped by channel and type
+- One-click to navigate to the message
+
+**Channel Badges:**
+- Unread count badge on channels in sidebar
+- Bold channel name for unread activity
+- Indicator dot for mentions
+
+**Browser Notifications:**
+- Desktop/push notifications for important events
+- Only when app is in background or closed
+
+## Managing Notifications
+
+### Marking as Read
+
+Notifications are automatically marked as read when:
+
+1. You view the message in the channel
+2. The message scrolls into the viewport
+3. You click the notification to navigate to it
+
+You can also manually mark all notifications as read.
+
+### Clearing Notifications
+
+Notifications are cleared when:
+
+- Messages become visible in your viewport
+- You navigate to the channel and scroll to the message
+- You delete the notification manually
+
+The system uses the `notification.deleteByMessageIds` RPC call to bulk-clear notifications when messages are viewed.
+
+<Info>
+  Viewing a message automatically clears its notification. No manual action needed!
+</Info>
+
+## Channel Notification Settings
+
+Control notifications per channel:
+
+### Muting Channels
+
+1. Right-click a channel in the sidebar
+2. Select **Mute Channel**
+3. Or go to Channel Settings → Notifications
+
+When muted:
+- No notifications for new messages
+- Unread count still increments
+- Channel appears dimmed in sidebar
+- Can still view and send messages normally
+
+### Unmuting Channels
+
+1. Right-click the muted channel
+2. Select **Unmute Channel**
+3. Notifications resume immediately
+
+## User Status and Notifications
+
+### Do Not Disturb
+
+Suppress all notifications temporarily:
+
+1. Click your avatar
+2. Set status to **Do Not Disturb**
+3. Optionally set an expiration time
+
+When Do Not Disturb is active:
+- No desktop or push notifications
+- No sound alerts
+- Visual indicators still update (badges, unread counts)
+- Messages are still received and stored
+
+Your presence status includes a `suppressNotifications` flag that controls this behavior.
+
+### Custom Status Expiration
+
+Set a status with automatic expiration:
+
+```json
+{
+  "status": "dnd",
+  "customMessage": "In a meeting",
+  "statusEmoji": "📅",
+  "statusExpiresAt": "2024-03-04T15:00:00Z"
+}
+```
+
+Notifications resume automatically when the status expires.
+
+## Notification Counts
+
+Each channel member has an individual notification counter:
+
+**How it works:**
+1. Counter increments with each new message
+2. Counter shown as badge on channel
+3. Counter decrements when messages are viewed
+4. Counter resets to zero when scrolled to latest message
+
+**Counter Storage:**
+- Stored in `channel_members.notificationCount`
+- Updated in real-time via Electric SQL sync
+- Persists across sessions and devices
+
+## Notification Data Model
+
+Each notification includes:
+
+```typescript
+{
+  id: string                    // Notification ID
+  memberId: string              // Organization member ID
+  targetedResourceId: string    // Channel ID
+  targetedResourceType: string  // "channel"
+  resourceId: string            // Message ID
+  resourceType: string          // "message"
+  createdAt: Date              // When notification was created
+  readAt: Date | null          // When notification was read
+}
+```
+
+### Deduplication
+
+The database enforces a unique constraint:
+
+```sql
+UNIQUE (memberId, resourceId, targetedResourceId)
+WHERE resourceType = 'message' AND targetedResourceType = 'channel'
+```
+
+This prevents duplicate notifications for the same message in a channel.
+
+## Notification Workflows
+
+### Mention Notification Flow
+
+1. User sends message with @mention
+2. System identifies mentioned users
+3. Creates notification for each mentioned member:
+   - `targetedResourceId` = channel ID
+   - `resourceId` = message ID
+4. Notifications appear in recipient's notification center
+5. Automatically cleared when message is viewed
+
+### Reply Notification Flow
+
+1. User replies to a message
+2. System identifies original message author
+3. Creates notification for author:
+   - Links to the reply message
+   - Shows reply context
+4. Author navigates to reply via notification
+5. Cleared when reply is viewed
+
+### Direct Message Flow
+
+1. New message sent in DM channel
+2. All channel members except sender receive notification
+3. Notification appears immediately
+4. Cleared when recipient views the message
+
+## Bulk Operations
+
+Clear multiple notifications at once:
+
+```typescript
+// Clear all notifications for viewed messages
+rpcClient.notificationDeleteByMessageIds({
+  messageIds: ["msg1", "msg2", "msg3"],
+  channelId: "channel123"
+})
+```
+
+Returns the count of deleted notifications.
+
+## Integration Notifications
+
+Bots and integrations can trigger notifications:
+
+**Mention Detection:**
+- Bots can @mention users in messages
+- System creates notifications automatically
+- Works same as user mentions
+
+**Custom Triggers:**
+- GitHub PR mentions
+- RSS feed updates for subscribed users
+- Webhook payloads with mention data
+
+## Notification Preferences (Coming Soon)
+
+Future enhancements:
+
+- Per-channel notification levels (All, Mentions Only, None)
+- Quiet hours scheduling
+- Notification sound customization
+- Email digest settings
+- Mobile push notification controls
+
+## Technical Details
+
+### RPC Operations
+
+**Create Notification:**
+```typescript
+notification.create({
+  memberId: string,
+  targetedResourceId: string,
+  targetedResourceType: "channel",
+  resourceId: string,
+  resourceType: "message"
+})
+```
+
+**Update Notification:**
+```typescript
+notification.update({
+  id: string,
+  readAt: Date
+})
+```
+
+**Delete Notification:**
+```typescript
+notification.delete({ id: string })
+```
+
+**Bulk Delete by Messages:**
+```typescript
+notification.deleteByMessageIds({
+  messageIds: string[],
+  channelId: string
+})
+```
+
+### Database Indexes
+
+Optimized queries with indexes on:
+- `member_id` - Fast member notification lookup
+- `member_id, created_at, id` - Chronological notification feed
+- `targeted_resource_id, targeted_resource_type` - Channel notifications
+- `resource_id, resource_type` - Message notifications
+- `read_at` - Unread notification filtering
+
+### Real-Time Sync
+
+Notifications sync via Electric SQL:
+- Instant delivery to all connected clients
+- Automatic conflict resolution
+- Offline support with sync on reconnect
+- Optimistic updates for instant UI feedback

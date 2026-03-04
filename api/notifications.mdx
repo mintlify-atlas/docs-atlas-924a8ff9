@@ -1,0 +1,401 @@
+---
+title: Notifications API
+description: Create, update, and manage user notifications for mentions, reactions, and system alerts
+---
+
+The Notifications API provides methods for managing notifications for organization members. Notifications can be used for mentions, message reactions, system alerts, and other events that require user attention.
+
+## Authentication
+
+All Notifications API methods require authentication via the `AuthMiddleware`. Include a valid bearer token in your requests.
+
+## Notification Structure
+
+Notifications in Hazel Chat use a flexible resource-based model:
+
+- **memberId**: The organization member who should receive the notification
+- **targetedResourceId/Type**: The primary resource (e.g., a message that mentions the user)
+- **resourceId/Type**: Related secondary resource (e.g., the channel containing the message)
+- **readAt**: Timestamp when notification was read (null if unread)
+
+## Methods
+
+### Create Notification
+
+Create a new notification for an organization member. Used for mentions, reactions, system alerts, etc.
+
+```typescript
+const client = yield* RpcClient
+
+const result = yield* client["notification.create"]({
+  memberId: "mem_123",
+  targetedResourceId: "msg_456",
+  targetedResourceType: "message",
+  resourceId: "chn_789",
+  resourceType: "channel"
+})
+```
+
+<ParamField path="memberId" type="OrganizationMemberId" required>
+  ID of the organization member who should receive the notification
+</ParamField>
+
+<ParamField path="targetedResourceId" type="string (UUID) | null">
+  ID of the primary resource that triggered the notification (e.g., message ID)
+</ParamField>
+
+<ParamField path="targetedResourceType" type="string | null">
+  Type of the targeted resource (e.g., "message", "reaction", "mention")
+</ParamField>
+
+<ParamField path="resourceId" type="string (UUID) | null">
+  ID of a related secondary resource (e.g., channel ID)
+</ParamField>
+
+<ParamField path="resourceType" type="string | null">
+  Type of the secondary resource (e.g., "channel")
+</ParamField>
+
+<ResponseField name="data" type="Notification" required>
+  The created notification object
+  
+  <Expandable title="Notification properties">
+    <ResponseField name="id" type="NotificationId" required>
+      Unique identifier for the notification
+    </ResponseField>
+    
+    <ResponseField name="memberId" type="OrganizationMemberId" required>
+      ID of the member receiving the notification
+    </ResponseField>
+    
+    <ResponseField name="targetedResourceId" type="string (UUID) | null">
+      Primary resource ID
+    </ResponseField>
+    
+    <ResponseField name="targetedResourceType" type="string | null">
+      Primary resource type
+    </ResponseField>
+    
+    <ResponseField name="resourceId" type="string (UUID) | null">
+      Secondary resource ID
+    </ResponseField>
+    
+    <ResponseField name="resourceType" type="string | null">
+      Secondary resource type
+    </ResponseField>
+    
+    <ResponseField name="createdAt" type="Date" required>
+      When the notification was created
+    </ResponseField>
+    
+    <ResponseField name="readAt" type="Date | null">
+      When the notification was read (null if unread)
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="transactionId" type="TransactionId" required>
+  Transaction ID for optimistic updates
+</ResponseField>
+
+**Errors:**
+- `UnauthorizedError` - User lacks permission to create notifications
+- `InternalServerError` - Unexpected server error
+
+**Implementation Notes:**
+- Policy checks ensure users can only create notifications for authorized members
+- Performed within a database transaction
+
+---
+
+### Update Notification
+
+Update an existing notification. Typically used to mark notifications as read.
+
+```typescript
+const client = yield* RpcClient
+
+const result = yield* client["notification.update"]({
+  id: "ntf_123",
+  readAt: new Date()
+})
+```
+
+<ParamField path="id" type="NotificationId" required>
+  ID of the notification to update
+</ParamField>
+
+<ParamField path="readAt" type="Date | null">
+  Timestamp when notification was read. Set to mark as read, or null to mark as unread.
+</ParamField>
+
+<ResponseField name="data" type="Notification" required>
+  The updated notification object
+</ResponseField>
+
+<ResponseField name="transactionId" type="TransactionId" required>
+  Transaction ID for optimistic updates
+</ResponseField>
+
+**Errors:**
+- `NotificationNotFoundError` - Notification with the specified ID doesn't exist
+- `UnauthorizedError` - User lacks permission to update this notification
+- `InternalServerError` - Unexpected server error
+
+**Implementation Notes:**
+- Only the notification owner or authorized users can update
+- Performed within a database transaction
+- Policy checks ensure proper authorization
+
+---
+
+### Delete Notification
+
+Delete a notification. Only the notification owner or users with appropriate permissions can delete.
+
+```typescript
+const client = yield* RpcClient
+
+const result = yield* client["notification.delete"]({
+  id: "ntf_123"
+})
+```
+
+<ParamField path="id" type="NotificationId" required>
+  ID of the notification to delete
+</ParamField>
+
+<ResponseField name="transactionId" type="TransactionId" required>
+  Transaction ID for optimistic updates
+</ResponseField>
+
+**Errors:**
+- `NotificationNotFoundError` - Notification with the specified ID doesn't exist
+- `UnauthorizedError` - User lacks permission to delete this notification
+- `InternalServerError` - Unexpected server error
+
+**Implementation Notes:**
+- Performed within a database transaction
+- Policy checks ensure only authorized users can delete
+
+---
+
+### Delete Notifications by Message IDs
+
+Bulk delete notifications for the current user by message IDs. Used when messages become visible in the viewport to automatically clear their notifications.
+
+```typescript
+const client = yield* RpcClient
+
+const result = yield* client["notification.deleteByMessageIds"]({
+  messageIds: ["msg_123", "msg_456", "msg_789"],
+  channelId: "chn_abc"
+})
+
+console.log(`Cleared ${result.deletedCount} notifications`)
+```
+
+<ParamField path="messageIds" type="MessageId[]" required>
+  Array of message IDs to clear notifications for
+</ParamField>
+
+<ParamField path="channelId" type="ChannelId" required>
+  ID of the channel containing the messages (used for authorization)
+</ParamField>
+
+<ResponseField name="deletedCount" type="number" required>
+  Number of notifications that were deleted
+</ResponseField>
+
+<ResponseField name="transactionId" type="TransactionId" required>
+  Transaction ID for optimistic updates
+</ResponseField>
+
+**Errors:**
+- `UnauthorizedError` - User is not a member of the channel's organization
+- `InternalServerError` - Unexpected server error
+
+**Implementation Notes:**
+- Automatically determines the organization member from the current user and channel
+- Only deletes notifications belonging to the current user
+- If `messageIds` is empty, returns immediately with deletedCount of 0
+- Verifies channel exists and user is an organization member
+- Performed within a database transaction
+
+## Usage Patterns
+
+<CodeGroup>
+```typescript Mark Notification as Read
+import { Effect } from "effect"
+import { RpcClient } from "@hazel/domain/rpc"
+
+const markAsRead = (notificationId: string) => Effect.gen(function* () {
+  const client = yield* RpcClient
+  
+  const result = yield* client["notification.update"]({
+    id: notificationId,
+    readAt: new Date()
+  })
+  
+  return result.data
+})
+```
+
+```typescript Create Mention Notification
+import { Effect } from "effect"
+import { RpcClient } from "@hazel/domain/rpc"
+
+const notifyMention = Effect.gen(function* () {
+  const client = yield* RpcClient
+  
+  const result = yield* client["notification.create"]({
+    memberId: "mem_123",
+    targetedResourceId: "msg_456",
+    targetedResourceType: "mention",
+    resourceId: "chn_789",
+    resourceType: "channel"
+  })
+  
+  return result.data
+})
+```
+
+```typescript Auto-clear on Message View
+import { Effect } from "effect"
+import { RpcClient } from "@hazel/domain/rpc"
+
+const clearNotificationsForVisibleMessages = (
+  messageIds: string[],
+  channelId: string
+) => Effect.gen(function* () {
+  const client = yield* RpcClient
+  
+  const result = yield* client["notification.deleteByMessageIds"]({
+    messageIds,
+    channelId
+  })
+  
+  console.log(`Cleared ${result.deletedCount} notifications`)
+  return result
+})
+```
+
+```typescript Batch Mark as Read
+import { Effect } from "effect"
+import { RpcClient } from "@hazel/domain/rpc"
+
+const markAllAsRead = (notificationIds: string[]) => Effect.gen(function* () {
+  const client = yield* RpcClient
+  const now = new Date()
+  
+  // Update all notifications in parallel
+  const results = yield* Effect.all(
+    notificationIds.map(id =>
+      client["notification.update"]({
+        id,
+        readAt: now
+      })
+    ),
+    { concurrency: 5 } // Limit concurrent requests
+  )
+  
+  return results
+})
+```
+</CodeGroup>
+
+## Common Use Cases
+
+### Message Mentions
+
+Create notifications when users are mentioned in messages:
+
+```typescript
+{
+  memberId: mentionedMemberId,
+  targetedResourceId: messageId,
+  targetedResourceType: "mention",
+  resourceId: channelId,
+  resourceType: "channel"
+}
+```
+
+### Message Reactions
+
+Notify users when someone reacts to their message:
+
+```typescript
+{
+  memberId: messageAuthorMemberId,
+  targetedResourceId: reactionId,
+  targetedResourceType: "reaction",
+  resourceId: messageId,
+  resourceType: "message"
+}
+```
+
+### System Alerts
+
+Send system notifications to users:
+
+```typescript
+{
+  memberId: recipientMemberId,
+  targetedResourceId: null,
+  targetedResourceType: "system_alert",
+  resourceId: null,
+  resourceType: null
+}
+```
+
+## Error Handling
+
+<CodeGroup>
+```typescript Effect Pattern
+import { Effect } from "effect"
+import { RpcClient } from "@hazel/domain/rpc"
+import { NotificationNotFoundError } from "@hazel/domain/rpc"
+
+const updateNotificationSafe = (id: string) => Effect.gen(function* () {
+  const client = yield* RpcClient
+  
+  const result = yield* client["notification.update"]({
+    id,
+    readAt: new Date()
+  }).pipe(
+    Effect.catchTag("NotificationNotFoundError", (error) =>
+      Effect.succeed({ data: null, transactionId: "" })
+    ),
+    Effect.catchTag("UnauthorizedError", () =>
+      Effect.fail(new Error("Not authorized to update this notification"))
+    )
+  )
+  
+  return result
+})
+```
+
+```typescript Try/Catch Pattern
+try {
+  const client = yield* RpcClient
+  
+  const result = yield* client["notification.delete"]({
+    id: "ntf_123"
+  })
+  
+  console.log("Notification deleted")
+} catch (error) {
+  if (error instanceof NotificationNotFoundError) {
+    console.log("Notification already deleted")
+  } else if (error instanceof UnauthorizedError) {
+    console.error("Not authorized")
+  }
+}
+```
+</CodeGroup>
+
+## Related APIs
+
+- [Users API](/api/users) - Manage user accounts
+- [User Presence Status API](/api/user-presence-status) - User status affects notification delivery
+- [Messages API](/api/messages) - Messages often trigger notifications

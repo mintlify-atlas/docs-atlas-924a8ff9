@@ -1,0 +1,380 @@
+---
+title: Messages API
+description: Create, update, and delete messages in channels
+---
+
+The Messages API provides RPC methods for managing chat messages in Hazel Chat. All methods require authentication and include rate limiting (60 requests per minute per user).
+
+## Overview
+
+Messages are the core content of conversations in Hazel Chat. Each message belongs to a channel and has an author. Messages support:
+
+- Plain text content
+- Rich embeds for links and media
+- Attachments (images, files)
+- Replies to other messages
+- Thread creation
+
+## Authentication
+
+All message operations require authentication via `AuthMiddleware`. The `authorId` is automatically set from the authenticated user context.
+
+## Rate Limiting
+
+Message operations are rate-limited to **60 requests per minute per user** to prevent spam and abuse.
+
+---
+
+## Methods
+
+### message.create
+
+Creates a new message in a channel.
+
+<ParamField path="channelId" type="string (UUID)" required>
+  The ID of the channel to post the message in
+</ParamField>
+
+<ParamField path="content" type="string" required>
+  The text content of the message
+</ParamField>
+
+<ParamField path="embeds" type="MessageEmbeds | null">
+  Rich embed data for links, images, or other media
+</ParamField>
+
+<ParamField path="replyToMessageId" type="string (UUID) | null">
+  ID of the message this is replying to
+</ParamField>
+
+<ParamField path="threadChannelId" type="string (UUID) | null">
+  ID of the thread channel if this message creates or belongs to a thread
+</ParamField>
+
+<ParamField path="attachmentIds" type="string[]">
+  Array of attachment IDs to link to this message. Attachments must be uploaded first.
+</ParamField>
+
+#### Response
+
+<ResponseField name="data" type="Message">
+  The created message object
+  
+  <Expandable title="Message fields">
+    <ResponseField name="id" type="string (UUID)">
+      Unique identifier for the message
+    </ResponseField>
+    
+    <ResponseField name="channelId" type="string (UUID)">
+      ID of the channel containing this message
+    </ResponseField>
+    
+    <ResponseField name="authorId" type="string (UUID)">
+      ID of the user who created the message
+    </ResponseField>
+    
+    <ResponseField name="content" type="string">
+      The text content of the message
+    </ResponseField>
+    
+    <ResponseField name="embeds" type="MessageEmbeds | null">
+      Rich embed data if present
+    </ResponseField>
+    
+    <ResponseField name="replyToMessageId" type="string (UUID) | null">
+      ID of the message being replied to
+    </ResponseField>
+    
+    <ResponseField name="threadChannelId" type="string (UUID) | null">
+      ID of the thread channel if applicable
+    </ResponseField>
+    
+    <ResponseField name="createdAt" type="string (ISO 8601)">
+      Timestamp when the message was created
+    </ResponseField>
+    
+    <ResponseField name="updatedAt" type="string (ISO 8601)">
+      Timestamp when the message was last updated
+    </ResponseField>
+    
+    <ResponseField name="deletedAt" type="string (ISO 8601) | null">
+      Timestamp when the message was deleted (soft delete)
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="transactionId" type="string">
+  Transaction ID for optimistic UI updates
+</ResponseField>
+
+#### Errors
+
+- `ChannelNotFoundError` - The specified channel does not exist
+- `UnauthorizedError` - User lacks permission to post in this channel
+- `RateLimitExceededError` - User has exceeded the rate limit (60/min)
+- `InternalServerError` - An unexpected error occurred
+
+#### Example
+
+<CodeGroup>
+```typescript Effect
+import { RpcClient } from "@hazel/domain/rpc"
+import { Effect } from "effect"
+
+const createMessage = Effect.gen(function* () {
+  const client = yield* RpcClient
+  
+  const result = yield* client.MessageCreate({
+    channelId: "550e8400-e29b-41d4-a716-446655440000",
+    content: "Hello, world!",
+    attachmentIds: [],
+    embeds: null,
+    replyToMessageId: null,
+    threadChannelId: null,
+  })
+  
+  console.log("Message created:", result.data.id)
+  return result
+})
+```
+
+```typescript With Reply
+const createReply = Effect.gen(function* () {
+  const client = yield* RpcClient
+  
+  const result = yield* client.MessageCreate({
+    channelId: "550e8400-e29b-41d4-a716-446655440000",
+    content: "Thanks for the info!",
+    replyToMessageId: "660e8400-e29b-41d4-a716-446655440001",
+    attachmentIds: [],
+    embeds: null,
+    threadChannelId: null,
+  })
+  
+  return result
+})
+```
+
+```typescript With Attachments
+const createWithAttachment = Effect.gen(function* () {
+  const client = yield* RpcClient
+  
+  // Upload attachment first, then create message
+  const result = yield* client.MessageCreate({
+    channelId: "550e8400-e29b-41d4-a716-446655440000",
+    content: "Check out this image!",
+    attachmentIds: ["770e8400-e29b-41d4-a716-446655440002"],
+    embeds: null,
+    replyToMessageId: null,
+    threadChannelId: null,
+  })
+  
+  return result
+})
+```
+</CodeGroup>
+
+---
+
+### message.update
+
+Updates an existing message. Only the message author or users with appropriate permissions can update messages.
+
+<Note>
+  Only `content` and `embeds` can be updated. Immutable fields like `channelId`, `replyToMessageId`, and `threadChannelId` cannot be changed to prevent moving messages between channels or fabricating conversation context.
+</Note>
+
+<ParamField path="id" type="string (UUID)" required>
+  The ID of the message to update
+</ParamField>
+
+<ParamField path="content" type="string">
+  New text content for the message
+</ParamField>
+
+<ParamField path="embeds" type="MessageEmbeds | null">
+  Updated embed data
+</ParamField>
+
+#### Response
+
+<ResponseField name="data" type="Message">
+  The updated message object (see message.create for fields)
+</ResponseField>
+
+<ResponseField name="transactionId" type="string">
+  Transaction ID for optimistic UI updates
+</ResponseField>
+
+#### Errors
+
+- `MessageNotFoundError` - The specified message does not exist
+- `UnauthorizedError` - User lacks permission to update this message
+- `RateLimitExceededError` - User has exceeded the rate limit (60/min)
+- `InternalServerError` - An unexpected error occurred
+
+#### Example
+
+<CodeGroup>
+```typescript Effect
+import { RpcClient } from "@hazel/domain/rpc"
+import { Effect } from "effect"
+
+const updateMessage = Effect.gen(function* () {
+  const client = yield* RpcClient
+  
+  const result = yield* client.MessageUpdate({
+    id: "550e8400-e29b-41d4-a716-446655440000",
+    content: "Updated message content",
+  })
+  
+  console.log("Message updated:", result.data.updatedAt)
+  return result
+})
+```
+
+```typescript Update Embeds
+const updateEmbeds = Effect.gen(function* () {
+  const client = yield* RpcClient
+  
+  const result = yield* client.MessageUpdate({
+    id: "550e8400-e29b-41d4-a716-446655440000",
+    embeds: {
+      url: "https://example.com",
+      title: "Example Link",
+      description: "An example embed",
+    },
+  })
+  
+  return result
+})
+```
+</CodeGroup>
+
+---
+
+### message.delete
+
+Deletes a message (soft delete). Only the message author or users with appropriate permissions can delete messages.
+
+<Info>
+  This is a soft delete operation. The message is marked as deleted but remains in the database with a `deletedAt` timestamp.
+</Info>
+
+<ParamField path="id" type="string (UUID)" required>
+  The ID of the message to delete
+</ParamField>
+
+#### Response
+
+<ResponseField name="transactionId" type="string">
+  Transaction ID for optimistic UI updates
+</ResponseField>
+
+#### Errors
+
+- `MessageNotFoundError` - The specified message does not exist
+- `UnauthorizedError` - User lacks permission to delete this message
+- `RateLimitExceededError` - User has exceeded the rate limit (60/min)
+- `InternalServerError` - An unexpected error occurred
+
+#### Example
+
+<CodeGroup>
+```typescript Effect
+import { RpcClient } from "@hazel/domain/rpc"
+import { Effect } from "effect"
+
+const deleteMessage = Effect.gen(function* () {
+  const client = yield* RpcClient
+  
+  const result = yield* client.MessageDelete({
+    id: "550e8400-e29b-41d4-a716-446655440000",
+  })
+  
+  console.log("Message deleted, transaction:", result.transactionId)
+  return result
+})
+```
+</CodeGroup>
+
+---
+
+## Best Practices
+
+### Optimistic Updates
+
+Use the `transactionId` returned from all operations to implement optimistic UI updates:
+
+```typescript
+const optimisticCreate = Effect.gen(function* () {
+  const client = yield* RpcClient
+  
+  // Show message immediately in UI
+  const tempMessage = {
+    content: "Hello!",
+    channelId: currentChannelId,
+    // ... other fields
+  }
+  addMessageToUI(tempMessage)
+  
+  // Send to server
+  const result = yield* client.MessageCreate(tempMessage)
+  
+  // Update UI with real data and transactionId
+  updateMessageInUI(result.transactionId, result.data)
+})
+```
+
+### Rate Limiting
+
+Handle rate limit errors gracefully:
+
+```typescript
+const createWithRetry = Effect.gen(function* () {
+  const client = yield* RpcClient
+  
+  const result = yield* client.MessageCreate(payload).pipe(
+    Effect.catchTag("RateLimitExceededError", (error) =>
+      Effect.gen(function* () {
+        // Wait and retry
+        yield* Effect.sleep("60 seconds")
+        return yield* client.MessageCreate(payload)
+      })
+    )
+  )
+  
+  return result
+})
+```
+
+### Attachment Handling
+
+Always upload attachments before creating the message:
+
+```typescript
+const createMessageWithFile = Effect.gen(function* () {
+  const client = yield* RpcClient
+  
+  // 1. Upload attachment first
+  const attachment = yield* uploadFile(file)
+  
+  // 2. Create message with attachment ID
+  const message = yield* client.MessageCreate({
+    channelId: currentChannelId,
+    content: "Here's the file!",
+    attachmentIds: [attachment.id],
+  })
+  
+  return message
+})
+```
+
+---
+
+## Source Code Reference
+
+- RPC Contracts: `packages/domain/src/rpc/messages.ts`
+- Message Model: `packages/domain/src/models/message-model.ts`
+- Backend Handlers: `apps/backend/src/rpc/handlers/messages.ts`
+- Message Policy: `apps/backend/src/policies/message-policy.ts`

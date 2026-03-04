@@ -1,0 +1,365 @@
+---
+title: Authentication
+description: API authentication using WorkOS and session management
+---
+
+## Overview
+
+Hazel Chat uses **WorkOS** for authentication, supporting both session-based authentication (web/desktop) and bearer token authentication (bots). All authenticated requests automatically provide user context to RPC handlers.
+
+## Authentication Flow
+
+### Web/Desktop Authentication
+
+The web and desktop applications use WorkOS session cookies:
+
+1. User initiates OAuth flow through WorkOS
+2. WorkOS redirects back with authorization code
+3. Backend exchanges code for session token
+4. Session cookie is set (httpOnly, secure)
+5. Future requests include session cookie automatically
+
+```typescript
+// Frontend: Session cookie is automatically included
+const result = yield* client["message.create"]({
+  channelId: "channel-id",
+  content: "Hello!"
+})
+// CurrentUser is automatically available in the handler
+```
+
+### Bot Authentication
+
+Bots authenticate using bearer tokens in the Authorization header:
+
+```typescript
+import { makeBotRpcClient } from "@hazel/bot-sdk"
+
+const client = yield* makeBotRpcClient({
+  backendUrl: "https://api.hazel.sh",
+  botToken: "bot_your_token_here"
+})
+
+// Bearer token automatically added to all requests
+const result = yield* client["message.create"]({...})
+```
+
+<Warning>
+Never expose bot tokens in client-side code or public repositories. Store them securely as environment variables.
+</Warning>
+
+## WorkOS Configuration
+
+The backend requires the following WorkOS environment variables:
+
+```bash
+# WorkOS API credentials
+WORKOS_API_KEY=sk_test_your_api_key
+WORKOS_CLIENT_ID=client_your_client_id
+WORKOS_WEBHOOK_SECRET=your_webhook_secret
+
+# OAuth redirect
+WORKOS_REDIRECT_URI=http://localhost:3003/auth/callback
+
+# Session cookie domain
+WORKOS_COOKIE_DOMAIN=localhost
+```
+
+<Info>
+In production, update `WORKOS_REDIRECT_URI` to your production API URL and `WORKOS_COOKIE_DOMAIN` to your domain.
+</Info>
+
+## Authentication Middleware
+
+RPC methods use the `AuthMiddleware` to automatically authenticate requests:
+
+```typescript
+import { Rpc } from "@effect/rpc"
+import { AuthMiddleware } from "@hazel/domain/rpc"
+
+// RPC definition with authentication
+Rpc.make("message.create", {
+  payload: MessageInsert,
+  success: MessageResponse,
+  error: Schema.Union(UnauthorizedError, InternalServerError)
+}).middleware(AuthMiddleware)
+```
+
+### How AuthMiddleware Works
+
+1. **Extracts credentials**: Reads session cookie or Authorization header
+2. **Verifies token**: Validates JWT signature against WorkOS JWKS
+3. **Fetches user**: Loads user from database (or creates if first login)
+4. **Provides context**: Makes `CurrentUser` available to handler
+
+```typescript
+// In RPC handler - CurrentUser is automatically available
+export const MessageRpcLive = MessageRpcs.toLayer(
+  Effect.gen(function* () {
+    return {
+      "message.create": (payload) =>
+        Effect.gen(function* () {
+          const user = yield* CurrentUser.Context
+          // user.id, user.email, user.role automatically available
+          
+          const message = yield* MessageRepo.insert({
+            ...payload,
+            authorId: user.id // Automatically set from auth
+          })
+          
+          return { data: message, transactionId: "..." }
+        })
+    }
+  })
+)
+```
+
+## CurrentUser Context
+
+Authenticated requests provide a `CurrentUser` object with the following fields:
+
+```typescript
+interface CurrentUser {
+  id: UserId                    // Internal user UUID
+  email: string                 // User email
+  firstName: string             // First name
+  lastName: string              // Last name
+  role: "owner" | "admin" | "member" // Organization role
+  organizationId?: OrganizationId // Current org (if impersonating)
+  avatarUrl?: string            // Profile picture URL
+  isOnboarded: boolean          // Onboarding status
+  timezone: string | null       // User timezone
+  settings: UserSettings | null // User preferences
+}
+```
+
+## Session Management
+
+### Session Verification
+
+The backend verifies sessions by:
+
+1. Extracting JWT from cookie/header
+2. Verifying signature using WorkOS JWKS endpoint
+3. Checking expiration
+4. Syncing user data from WorkOS
+
+```typescript
+// Backend authentication service
+export class BackendAuth extends Effect.Service<BackendAuth>()(
+  "@hazel/auth/BackendAuth",
+  {
+    effect: Effect.gen(function* () {
+      const authenticateWithBearer = (bearerToken: string, userRepo: UserRepoLike) =>
+        Effect.gen(function* () {
+          // Verify JWT with WorkOS JWKS
+          const jwks = createRemoteJWKSet(
+            new URL(`https://api.workos.com/sso/jwks/${clientId}`)
+          )
+          
+          const { payload } = yield* jwtVerify(bearerToken, jwks, {
+            issuer: "https://api.workos.com"
+          })
+          
+          // Fetch or create user
+          const user = yield* syncUserFromWorkOS(
+            userRepo,
+            payload.sub,
+            payload.email,
+            payload.firstName,
+            payload.lastName,
+            payload.profilePictureUrl
+          )
+          
+          return new CurrentUser(user)
+        })
+        
+      return { authenticateWithBearer }
+    })
+  }
+)
+```
+
+### Session Caching
+
+To improve performance, authenticated sessions are cached in Redis:
+
+- **Cache key**: Session token hash
+- **TTL**: Matches JWT expiration
+- **Invalidation**: Automatic on token expiry
+
+<Note>
+Session caching reduces database queries and WorkOS API calls, improving response times for authenticated requests.
+</Note>
+
+## Authentication Errors
+
+The authentication system returns typed errors for different failure scenarios:
+
+### Session Not Provided (401)
+
+```typescript
+{
+  _tag: "SessionNotProvidedError",
+  message: "No session cookie or Authorization header",
+  detail: "Authentication required"
+}
+```
+
+### Invalid Bearer Token (401)
+
+```typescript
+{
+  _tag: "InvalidBearerTokenError",
+  message: "JWT verification failed",
+  detail: "Invalid signature or expired token"
+}
+```
+
+### Session Expired (401)
+
+```typescript
+{
+  _tag: "SessionExpiredError",
+  message: "Session has expired",
+  detail: "Please re-authenticate"
+}
+```
+
+### Session Load Error (503)
+
+```typescript
+{
+  _tag: "SessionLoadError",
+  message: "Failed to load session",
+  detail: "Database connection error"
+}
+```
+
+### Unauthorized (401)
+
+Generic authorization failure:
+
+```typescript
+{
+  _tag: "UnauthorizedError",
+  message: "Permission denied",
+  detail: "You don't have access to this resource"
+}
+```
+
+<Warning>
+401 errors require re-authentication. 503 errors (SessionLoadError) can be retried.
+</Warning>
+
+## Example: Handling Authentication
+
+### Frontend Error Handling
+
+```typescript
+import { Effect } from "effect"
+import { HazelRpcClient } from "~/lib/services/common/rpc-atom-client"
+
+const createMessage = Effect.gen(function* () {
+  const client = yield* HazelRpcClient
+  
+  return yield* client["message.create"]({
+    channelId: "channel-id",
+    content: "Hello!"
+  })
+}).pipe(
+  Effect.catchTags({
+    UnauthorizedError: (error) =>
+      Effect.gen(function* () {
+        console.error("Not authorized:", error.message)
+        // Redirect to login
+        yield* Effect.sync(() => window.location.href = "/auth/login")
+      }),
+    SessionExpiredError: (error) =>
+      Effect.gen(function* () {
+        console.warn("Session expired, refreshing...")
+        // Trigger session refresh
+        yield* refreshSession()
+      }),
+    SessionLoadError: (error) =>
+      Effect.gen(function* () {
+        console.error("Session load failed, retrying...")
+        // Retry with exponential backoff
+        yield* Effect.sleep("1 second")
+        return yield* createMessage
+      })
+  })
+)
+```
+
+### Bot Error Handling
+
+```typescript
+import { Effect } from "effect"
+import { makeBotRpcClient } from "@hazel/bot-sdk"
+
+const program = Effect.gen(function* () {
+  const client = yield* makeBotRpcClient({
+    backendUrl: process.env.BACKEND_URL!,
+    botToken: process.env.BOT_TOKEN!
+  })
+  
+  return yield* client["message.create"]({
+    channelId: "channel-id",
+    content: "Bot message"
+  })
+}).pipe(
+  Effect.catchTag("InvalidBearerTokenError", (error) =>
+    Effect.gen(function* () {
+      console.error("Invalid bot token:", error.message)
+      // Log and exit - bot token is incorrect
+      yield* Effect.fail(new Error("Bot authentication failed"))
+    })
+  ),
+  Effect.retry({ times: 3, schedule: "exponential" })
+)
+```
+
+## Security Best Practices
+
+<Warning>
+**Never** expose authentication credentials:
+- Don't commit `.env` files
+- Don't log session tokens or bearer tokens
+- Use secure, httpOnly cookies for sessions
+- Rotate bot tokens regularly
+</Warning>
+
+### Session Cookie Security
+
+The backend sets secure session cookies with:
+
+```typescript
+{
+  httpOnly: true,      // Not accessible via JavaScript
+  secure: true,        // HTTPS only (production)
+  sameSite: "lax",     // CSRF protection
+  domain: process.env.WORKOS_COOKIE_DOMAIN,
+  maxAge: 7 * 24 * 60 * 60 * 1000  // 7 days
+}
+```
+
+### Bot Token Security
+
+- Store bot tokens in environment variables
+- Use different tokens for dev/staging/production
+- Implement token rotation
+- Monitor bot token usage
+- Revoke compromised tokens immediately
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Error Handling" icon="triangle-exclamation" href="/api/error-handling">
+    Learn about all error types and how to handle them
+  </Card>
+  
+  <Card title="API Introduction" icon="book" href="/api/introduction">
+    Return to API overview and architecture
+  </Card>
+</CardGroup>

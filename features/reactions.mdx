@@ -1,0 +1,307 @@
+---
+title: Message Reactions
+description: React to messages with emoji for quick feedback and engagement
+icon: face-smile
+---
+
+Message reactions provide a lightweight way to respond to messages with emoji without sending a full message.
+
+## Overview
+
+Reactions allow you to:
+
+- Respond quickly with emoji
+- Show agreement or acknowledgment
+- Express emotions without interrupting conversation
+- See who reacted with each emoji
+- Use standard Unicode emoji
+- Use custom organization emoji (if configured)
+
+<CardGroup cols={2}>
+  <Card title="Quick Feedback" icon="bolt">
+    React instantly without composing a message
+  </Card>
+  <Card title="One Per User" icon="user">
+    Each user can use each emoji once per message
+  </Card>
+  <Card title="Toggleable" icon="repeat">
+    Click again to remove your reaction
+  </Card>
+  <Card title="Custom Emoji" icon="sparkles">
+    Use organization-specific custom emoji
+  </Card>
+</CardGroup>
+
+## Adding Reactions
+
+### Quick React
+
+Add a reaction to any message:
+
+1. Hover over a message
+2. Click the **reaction icon** (😀) that appears
+3. Select an emoji from the picker
+4. Or click a frequently used emoji
+
+The reaction appears immediately on the message.
+
+### Reaction Picker
+
+The emoji picker includes:
+
+- **Recent** - Your recently used emoji
+- **Frequently Used** - Popular reactions
+- **Emoji Categories** - People, Nature, Food, Activities, etc.
+- **Custom Emoji** - Organization-specific emoji (if configured)
+- **Search** - Find emoji by name or keyword
+
+### Keyboard Shortcuts
+
+Quick reactions with hotkeys:
+
+- 👍 - Thumbs up
+- ❤️ - Heart
+- 😂 - Laughing face
+- 🎉 - Party popper
+- 🚀 - Rocket
+
+<Info>
+  Hover over a message and press the corresponding number key (1-5) to add these quick reactions.
+</Info>
+
+## Removing Reactions
+
+Remove your reaction:
+
+1. Click your reaction emoji on the message
+2. The reaction is instantly removed
+
+Or:
+
+1. Hover over the message
+2. Click the reaction icon
+3. Click the highlighted emoji to toggle it off
+
+## Viewing Reactions
+
+See who reacted to a message:
+
+1. Hover over a reaction count
+2. Tooltip shows list of users who reacted
+3. Your reaction is highlighted
+
+Reactions are grouped by emoji with a count:
+
+```
+👍 5    ❤️ 3    🎉 2
+```
+
+## Reaction Behavior
+
+### One Reaction Per Emoji
+
+Each user can react once with each emoji:
+
+- ✅ You can add 👍 and ❤️ to the same message
+- ❌ You cannot add 👍 twice to the same message
+- Clicking an emoji you've already used removes it (toggle behavior)
+
+### Real-Time Updates
+
+Reactions sync instantly:
+
+- See reactions from other users immediately
+- Reaction counts update in real-time
+- Optimistic updates for instant feedback
+- Automatic sync via Electric SQL
+
+### Persistence
+
+Reactions are permanently stored:
+
+- Survive app restarts
+- Sync across all your devices
+- Visible to all channel members
+- Deleted when message is deleted
+
+## Custom Emoji
+
+Organizations can add custom emoji:
+
+### Adding Custom Emoji
+
+1. Go to **Organization Settings** → **Custom Emoji**
+2. Click **Add Emoji**
+3. Upload an image file (PNG, GIF recommended)
+4. Enter a short name (e.g., "success")
+5. Save the custom emoji
+
+Custom emoji appear in the emoji picker under the **Custom** category.
+
+### Using Custom Emoji
+
+- Type `:shortname:` in messages (e.g., `:success:`)
+- Select from the emoji picker
+- Use in reactions like standard emoji
+- Available only in the organization where created
+
+<Note>
+  Custom emoji must be uploaded by organization admins or owners. Rate limited to 5 uploads per hour.
+</Note>
+
+## Reaction Notifications
+
+Receive notifications when someone reacts to your message:
+
+- Notification appears in your notification center
+- Shows who reacted and with which emoji
+- Links directly to the message
+- Can be disabled per channel
+
+See [Notifications](/features/notifications) for more details.
+
+## Use Cases
+
+### Quick Acknowledgment
+
+Use 👍 to acknowledge you've seen and understood a message without adding noise to the conversation.
+
+### Voting and Polls
+
+Create informal polls:
+
+```
+Which design do you prefer?
+React 1️⃣ for Option A
+React 2️⃣ for Option B
+```
+
+### Showing Support
+
+Use ❤️ to show support or appreciation for someone's message or achievement.
+
+### Indicating Status
+
+Use reactions to show task status:
+- ✅ - Done
+- 🚧 - In progress
+- ⏸️ - Blocked
+
+### Celebrating Wins
+
+Use 🎉, 🚀, or 🏆 to celebrate team wins and milestones.
+
+## Reaction Analytics (Coming Soon)
+
+Future features:
+
+- Most used emoji in organization
+- Reaction trends over time
+- Top reactors leaderboard
+- Custom emoji usage statistics
+
+## Technical Details
+
+### Data Model
+
+Each reaction includes:
+
+```typescript
+{
+  id: string           // Reaction ID
+  messageId: string    // Parent message
+  channelId: string    // Channel context
+  userId: string       // User who reacted
+  emoji: string        // Emoji character or custom emoji ID
+  createdAt: Date     // When reaction was added
+}
+```
+
+### Unique Constraint
+
+Database enforces uniqueness:
+
+```sql
+UNIQUE (messageId, userId, emoji)
+```
+
+This prevents duplicate reactions from the same user with the same emoji on the same message.
+
+### RPC Operations
+
+**Toggle Reaction:**
+```typescript
+rpcClient.messageReactionToggle({
+  messageId: string,
+  channelId: string,
+  emoji: string
+})
+```
+
+Returns:
+```typescript
+{
+  wasCreated: boolean,              // true if created, false if removed
+  data?: MessageReaction,           // reaction data if created
+  transactionId: string            // for optimistic updates
+}
+```
+
+**Create Reaction:**
+```typescript
+rpcClient.messageReactionCreate({
+  messageId: string,
+  channelId: string,
+  emoji: string
+})
+```
+
+**Delete Reaction:**
+```typescript
+rpcClient.messageReactionDelete({
+  id: string
+})
+```
+
+### Database Indexes
+
+Optimized queries with indexes on:
+- `channel_id` - Channel reactions
+- `message_id` - Message reactions
+- `user_id` - User's reactions
+- `message_id, user_id, emoji` - Uniqueness check
+
+### Emoji Format
+
+Reactions support:
+
+**Standard Emoji:**
+- Stored as Unicode characters (e.g., "👍", "❤️")
+- Cross-platform compatible
+- Maximum 50 characters (for multi-codepoint emoji)
+
+**Custom Emoji:**
+- Stored as custom emoji ID reference
+- Resolved to image URL in frontend
+- Organization-specific
+
+### Real-Time Sync
+
+Reactions sync via Electric SQL:
+- Instant delivery to all channel members
+- Optimistic updates for instant UI feedback
+- Automatic conflict resolution
+- Offline support with sync on reconnect
+
+### Permissions
+
+**Add Reactions:**
+- Must be channel member
+- Rate limited with message operations (60/min)
+
+**Remove Reactions:**
+- Only your own reactions
+- Or organization admin/owner
+
+**View Reactions:**
+- All channel members

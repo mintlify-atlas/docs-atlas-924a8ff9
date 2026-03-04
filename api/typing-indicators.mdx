@@ -1,0 +1,496 @@
+---
+title: Typing Indicators API
+description: Display real-time typing status in channels
+---
+
+The Typing Indicators API provides RPC methods for managing real-time typing status in channels. Typing indicators show when users are actively composing messages, improving the chat experience by providing immediate feedback.
+
+## Overview
+
+Typing indicators allow users to see when others are typing in a channel. Each typing indicator:
+
+- Associates a channel member with their typing activity
+- Tracks the last time they typed (timestamp)
+- Automatically expires after inactivity
+- Uses upsert operations for efficiency
+
+Typing indicators enhance user experience by:
+- Showing real-time activity
+- Preventing message collisions
+- Creating a more responsive feel
+- Indicating channel engagement
+
+## Authentication
+
+All typing indicator operations require authentication via `AuthMiddleware`.
+
+---
+
+## Methods
+
+### typingIndicator.create
+
+Creates or updates a typing indicator (upsert operation). If a typing indicator already exists for the channelId/memberId combination, it will be updated. Otherwise, a new one is created.
+
+<Tip>
+  This method uses an upsert pattern, so you can call it repeatedly as the user types without worrying about duplicates.
+</Tip>
+
+<ParamField path="channelId" type="string (UUID)" required>
+  The ID of the channel where the user is typing
+</ParamField>
+
+<ParamField path="memberId" type="string (UUID)" required>
+  The ID of the channel member who is typing
+</ParamField>
+
+<ParamField path="lastTyped" type="number">
+  Unix timestamp (milliseconds) of the last typing activity. Defaults to current time if not provided.
+</ParamField>
+
+#### Response
+
+<ResponseField name="data" type="TypingIndicator">
+  The created or updated typing indicator object
+  
+  <Expandable title="TypingIndicator fields">
+    <ResponseField name="id" type="string (UUID)">
+      Unique identifier for the typing indicator
+    </ResponseField>
+    
+    <ResponseField name="channelId" type="string (UUID)">
+      ID of the channel where typing is occurring
+    </ResponseField>
+    
+    <ResponseField name="memberId" type="string (UUID)">
+      ID of the channel member who is typing
+    </ResponseField>
+    
+    <ResponseField name="lastTyped" type="number">
+      Unix timestamp (milliseconds) of the last typing activity
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="transactionId" type="string">
+  Transaction ID for optimistic UI updates
+</ResponseField>
+
+#### Errors
+
+- `UnauthorizedError` - User lacks permission to create typing indicators
+- `InternalServerError` - An unexpected error occurred
+
+#### Example
+
+<CodeGroup>
+```typescript Effect
+import { RpcClient } from "@hazel/domain/rpc"
+import { Effect } from "effect"
+
+const startTyping = Effect.gen(function* () {
+  const client = yield* RpcClient
+  
+  const result = yield* client.TypingIndicatorCreate({
+    channelId: "550e8400-e29b-41d4-a716-446655440000",
+    memberId: "660e8400-e29b-41d4-a716-446655440001",
+    lastTyped: Date.now(),
+  })
+  
+  console.log("Typing indicator created:", result.data.id)
+  return result
+})
+```
+
+```typescript Auto-Timestamp
+const startTypingSimple = Effect.gen(function* () {
+  const client = yield* RpcClient
+  
+  // lastTyped defaults to current time
+  const result = yield* client.TypingIndicatorCreate({
+    channelId: currentChannelId,
+    memberId: currentMemberId,
+  })
+  
+  return result
+})
+```
+
+```typescript Input Handler
+const handleTyping = debounce(() => {
+  Effect.gen(function* () {
+    const client = yield* RpcClient
+    
+    yield* client.TypingIndicatorCreate({
+      channelId: currentChannelId,
+      memberId: currentMemberId,
+      lastTyped: Date.now(),
+    })
+  }).pipe(Effect.runPromise)
+}, 1000)
+
+// In your input component
+<input
+  onChange={(e) => {
+    handleTyping()
+    // ... update message content
+  }}
+/>
+```
+</CodeGroup>
+
+---
+
+### typingIndicator.update
+
+Updates an existing typing indicator's timestamp. Only the typing indicator owner or users with appropriate permissions can update.
+
+<Note>
+  In most cases, use `typingIndicator.create` instead, as it handles both creation and updates (upsert).
+</Note>
+
+<ParamField path="id" type="string (UUID)" required>
+  The ID of the typing indicator to update
+</ParamField>
+
+<ParamField path="lastTyped" type="number">
+  Updated Unix timestamp of typing activity
+</ParamField>
+
+#### Response
+
+<ResponseField name="data" type="TypingIndicator">
+  The updated typing indicator object
+</ResponseField>
+
+<ResponseField name="transactionId" type="string">
+  Transaction ID for optimistic UI updates
+</ResponseField>
+
+#### Errors
+
+- `TypingIndicatorNotFoundError` - The specified typing indicator does not exist
+- `UnauthorizedError` - User lacks permission to update this typing indicator
+- `InternalServerError` - An unexpected error occurred
+
+#### Example
+
+<CodeGroup>
+```typescript Effect
+import { RpcClient } from "@hazel/domain/rpc"
+import { Effect } from "effect"
+
+const updateTyping = Effect.gen(function* () {
+  const client = yield* RpcClient
+  
+  const result = yield* client.TypingIndicatorUpdate({
+    id: "770e8400-e29b-41d4-a716-446655440002",
+    lastTyped: Date.now(),
+  })
+  
+  return result
+})
+```
+</CodeGroup>
+
+---
+
+### typingIndicator.delete
+
+Deletes a typing indicator (hard delete). Called when a user stops typing in a channel.
+
+<ParamField path="id" type="string (UUID)" required>
+  The ID of the typing indicator to delete
+</ParamField>
+
+#### Response
+
+<ResponseField name="data" type="TypingIndicator">
+  The deleted typing indicator object
+</ResponseField>
+
+<ResponseField name="transactionId" type="string">
+  Transaction ID for optimistic UI updates
+</ResponseField>
+
+#### Errors
+
+- `TypingIndicatorNotFoundError` - The specified typing indicator does not exist
+- `UnauthorizedError` - User lacks permission to delete this typing indicator
+- `InternalServerError` - An unexpected error occurred
+
+#### Example
+
+<CodeGroup>
+```typescript Effect
+import { RpcClient } from "@hazel/domain/rpc"
+import { Effect } from "effect"
+
+const stopTyping = Effect.gen(function* () {
+  const client = yield* RpcClient
+  
+  const result = yield* client.TypingIndicatorDelete({
+    id: typingIndicatorId,
+  })
+  
+  console.log("Typing indicator removed")
+  return result
+})
+```
+
+```typescript On Message Send
+const sendMessage = Effect.gen(function* () {
+  const client = yield* RpcClient
+  
+  // Send the message
+  yield* client.MessageCreate(messageData)
+  
+  // Remove typing indicator
+  yield* client.TypingIndicatorDelete({
+    id: currentTypingIndicatorId,
+  })
+  
+  // Clear input
+  clearMessageInput()
+})
+```
+</CodeGroup>
+
+---
+
+## Best Practices
+
+### Debounce Typing Updates
+
+Debounce typing indicator updates to reduce server load:
+
+```typescript
+const TYPING_DEBOUNCE_MS = 1000
+const TYPING_THROTTLE_MS = 3000
+
+let lastTypingUpdate = 0
+let typingTimeout: NodeJS.Timeout | null = null
+
+const handleTyping = () => {
+  const now = Date.now()
+  
+  // Throttle: Don't update more often than every 3 seconds
+  if (now - lastTypingUpdate < TYPING_THROTTLE_MS) {
+    return
+  }
+  
+  // Debounce: Wait for user to stop typing briefly
+  if (typingTimeout) {
+    clearTimeout(typingTimeout)
+  }
+  
+  typingTimeout = setTimeout(() => {
+    Effect.gen(function* () {
+      const client = yield* RpcClient
+      
+      yield* client.TypingIndicatorCreate({
+        channelId: currentChannelId,
+        memberId: currentMemberId,
+        lastTyped: now,
+      })
+      
+      lastTypingUpdate = now
+    }).pipe(Effect.runPromise)
+  }, TYPING_DEBOUNCE_MS)
+}
+```
+
+### Auto-Expire Indicators
+
+Automatically remove stale typing indicators on the client:
+
+```typescript
+const TYPING_TIMEOUT_MS = 5000 // 5 seconds
+
+interface TypingState {
+  userId: string
+  lastTyped: number
+}
+
+const cleanupStaleIndicators = () => {
+  const now = Date.now()
+  const activeIndicators = typingIndicators.filter(
+    (indicator) => now - indicator.lastTyped < TYPING_TIMEOUT_MS
+  )
+  
+  setTypingIndicators(activeIndicators)
+}
+
+// Run cleanup periodically
+setInterval(cleanupStaleIndicators, 1000)
+```
+
+### Display Typing Users
+
+Show typing indicators in a user-friendly way:
+
+```typescript
+const TypingIndicator = ({ typingUsers }) => {
+  if (typingUsers.length === 0) return null
+  
+  const getUserNames = () => {
+    if (typingUsers.length === 1) {
+      return `${typingUsers[0].username} is typing`
+    } else if (typingUsers.length === 2) {
+      return `${typingUsers[0].username} and ${typingUsers[1].username} are typing`
+    } else if (typingUsers.length === 3) {
+      return `${typingUsers[0].username}, ${typingUsers[1].username}, and ${typingUsers[2].username} are typing`
+    } else {
+      return `${typingUsers.length} people are typing`
+    }
+  }
+  
+  return (
+    <div className="typing-indicator">
+      <span className="typing-text">{getUserNames()}</span>
+      <span className="typing-dots">
+        <span>.</span>
+        <span>.</span>
+        <span>.</span>
+      </span>
+    </div>
+  )
+}
+```
+
+### Stop Typing on Message Send
+
+Always clear the typing indicator when sending a message:
+
+```typescript
+const sendMessageWithTypingCleanup = Effect.gen(function* () {
+  const client = yield* RpcClient
+  
+  try {
+    // Send message
+    yield* client.MessageCreate(messageData)
+    
+    // Clear typing indicator
+    if (currentTypingIndicatorId) {
+      yield* client.TypingIndicatorDelete({
+        id: currentTypingIndicatorId,
+      })
+      currentTypingIndicatorId = null
+    }
+    
+    // Clear input
+    setMessageContent("")
+  } catch (error) {
+    console.error("Failed to send message:", error)
+  }
+})
+```
+
+### Handle Focus and Blur
+
+Remove typing indicator when user leaves the input:
+
+```typescript
+const MessageInput = () => {
+  const handleFocus = () => {
+    // User started typing
+    handleTyping()
+  }
+  
+  const handleBlur = () => {
+    Effect.gen(function* () {
+      const client = yield* RpcClient
+      
+      // User left input, remove typing indicator
+      if (currentTypingIndicatorId) {
+        yield* client.TypingIndicatorDelete({
+          id: currentTypingIndicatorId,
+        })
+        currentTypingIndicatorId = null
+      }
+    }).pipe(Effect.runPromise)
+  }
+  
+  return (
+    <input
+      onFocus={handleFocus}
+      onBlur={handleBlur}
+      onChange={handleTyping}
+    />
+  )
+}
+```
+
+### Real-time Subscriptions
+
+Subscribe to typing indicator changes via WebSocket:
+
+```typescript
+const subscribeToTypingIndicators = (channelId: string) => {
+  return Effect.gen(function* () {
+    const ws = yield* WebSocketClient
+    
+    yield* ws.subscribe(
+      `channel:${channelId}:typing`,
+      (indicator: TypingIndicator) => {
+        // Update typing indicators list
+        setTypingIndicators((prev) => {
+          const existing = prev.find((i) => i.memberId === indicator.memberId)
+          
+          if (existing) {
+            // Update existing
+            return prev.map((i) =>
+              i.memberId === indicator.memberId ? indicator : i
+            )
+          } else {
+            // Add new
+            return [...prev, indicator]
+          }
+        })
+      }
+    )
+  })
+}
+```
+
+### Batch Updates
+
+Batch multiple typing indicator updates together:
+
+```typescript
+const pendingUpdates = new Map<string, TypingIndicator>()
+let updateTimer: NodeJS.Timeout | null = null
+
+const queueTypingUpdate = (indicator: TypingIndicator) => {
+  pendingUpdates.set(indicator.memberId, indicator)
+  
+  if (updateTimer) {
+    clearTimeout(updateTimer)
+  }
+  
+  updateTimer = setTimeout(() => {
+    flushTypingUpdates()
+  }, 500)
+}
+
+const flushTypingUpdates = () => {
+  Effect.gen(function* () {
+    const client = yield* RpcClient
+    
+    // Send all pending updates
+    yield* Effect.forEach(Array.from(pendingUpdates.values()), (indicator) =>
+      client.TypingIndicatorCreate(indicator)
+    )
+    
+    pendingUpdates.clear()
+  }).pipe(Effect.runPromise)
+}
+```
+
+---
+
+## Source Code Reference
+
+- RPC Contracts: `packages/domain/src/rpc/typing-indicators.ts`
+- TypingIndicator Model: `packages/domain/src/models/typing-indicator-model.ts`
+- Backend Handlers: `apps/backend/src/rpc/handlers/typing-indicators.ts` (if exists)

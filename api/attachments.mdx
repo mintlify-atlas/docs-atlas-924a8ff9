@@ -1,0 +1,258 @@
+---
+title: Attachments API
+description: Manage file attachments in messages
+---
+
+## Overview
+
+The Attachments API provides methods to manage file attachments uploaded to messages. Hazel Chat uses a direct-to-R2 upload flow where files are uploaded directly to cloud storage, then marked as complete or failed.
+
+## Attachment Upload Flow
+
+1. Create attachment record (via separate endpoint, not shown here)
+2. Upload file directly to R2 using presigned URL
+3. Call `attachment.complete` when upload succeeds
+4. Or call `attachment.fail` if upload fails
+
+Attachments have three possible statuses:
+- `uploading` - Initial state, file is being uploaded
+- `complete` - Upload succeeded, attachment is ready
+- `failed` - Upload failed, attachment is unusable
+
+---
+
+## attachment.delete
+
+Delete an attachment (soft delete). Only the uploader or users with appropriate permissions can delete attachments.
+
+<ParamField path="id" type="AttachmentId" required>
+  Attachment identifier
+</ParamField>
+
+<ResponseField name="transactionId" type="TransactionId">
+  Transaction ID for optimistic updates
+</ResponseField>
+
+**Errors:**
+- `AttachmentNotFoundError` - Attachment doesn't exist
+- `UnauthorizedError` - User lacks permission to delete this attachment
+- `InternalServerError` - Server error
+
+<CodeGroup>
+```typescript Example
+await client.rpc("attachment.delete", {
+  id: "attach_abc123"
+})
+
+console.log("Attachment deleted")
+```
+</CodeGroup>
+
+---
+
+## attachment.complete
+
+Mark an attachment as complete after successfully uploading to R2. Only the original uploader can mark as complete.
+
+<ParamField path="id" type="AttachmentId" required>
+  Attachment identifier
+</ParamField>
+
+<ResponseField name="data" type="Attachment">
+  The completed attachment
+  <Expandable title="properties">
+    <ResponseField name="id" type="AttachmentId">
+      Unique attachment identifier
+    </ResponseField>
+    <ResponseField name="organizationId" type="OrganizationId">
+      Organization that owns this attachment
+    </ResponseField>
+    <ResponseField name="channelId" type="ChannelId | null">
+      Channel the attachment belongs to
+    </ResponseField>
+    <ResponseField name="messageId" type="MessageId | null">
+      Message the attachment is attached to
+    </ResponseField>
+    <ResponseField name="fileName" type="string">
+      Original file name
+    </ResponseField>
+    <ResponseField name="fileSize" type="number">
+      File size in bytes
+    </ResponseField>
+    <ResponseField name="externalUrl" type="string | null">
+      Public URL to access the file
+    </ResponseField>
+    <ResponseField name="uploadedBy" type="UserId">
+      User who uploaded the attachment
+    </ResponseField>
+    <ResponseField name="status" type="'uploading' | 'complete' | 'failed'">
+      Current upload status
+    </ResponseField>
+    <ResponseField name="uploadedAt" type="Date">
+      Timestamp when upload was initiated
+    </ResponseField>
+    <ResponseField name="deletedAt" type="Date | null">
+      Deletion timestamp (null if active)
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+**Errors:**
+- `AttachmentNotFoundError` - Attachment doesn't exist
+- `UnauthorizedError` - User is not the original uploader
+- `InternalServerError` - Server error
+
+<CodeGroup>
+```typescript Example Upload Flow
+// 1. Create attachment record (presigned URL obtained separately)
+const attachmentId = "attach_abc123"
+
+// 2. Upload file to R2 using presigned URL
+await fetch(presignedUrl, {
+  method: "PUT",
+  body: fileBlob,
+  headers: { "Content-Type": file.type }
+})
+
+// 3. Mark as complete
+const result = await client.rpc("attachment.complete", {
+  id: attachmentId
+})
+
+console.log("Attachment ready:", result.fileName)
+console.log("Status:", result.status) // "complete"
+```
+</CodeGroup>
+
+---
+
+## attachment.fail
+
+Mark an attachment as failed after an upload error. Only the original uploader can mark as failed.
+
+<ParamField path="id" type="AttachmentId" required>
+  Attachment identifier
+</ParamField>
+
+<ParamField path="reason" type="string">
+  Optional error message or failure reason
+</ParamField>
+
+**Errors:**
+- `AttachmentNotFoundError` - Attachment doesn't exist
+- `UnauthorizedError` - User is not the original uploader
+- `InternalServerError` - Server error
+
+<CodeGroup>
+```typescript Example Error Handling
+try {
+  // Upload file to R2
+  await fetch(presignedUrl, {
+    method: "PUT",
+    body: fileBlob
+  })
+  
+  // Mark as complete
+  await client.rpc("attachment.complete", {
+    id: attachmentId
+  })
+} catch (error) {
+  // Upload failed, mark attachment as failed
+  await client.rpc("attachment.fail", {
+    id: attachmentId,
+    reason: error.message
+  })
+  
+  console.error("Upload failed:", error)
+}
+```
+</CodeGroup>
+
+---
+
+## Best Practices
+
+### Error Handling
+
+Always handle upload failures gracefully and mark attachments as failed:
+
+<CodeGroup>
+```typescript Robust Upload
+async function uploadAttachment(file: File, attachmentId: string) {
+  try {
+    // Get presigned URL (implementation not shown)
+    const presignedUrl = await getPresignedUrl(attachmentId)
+    
+    // Upload to R2
+    const response = await fetch(presignedUrl, {
+      method: "PUT",
+      body: file
+    })
+    
+    if (!response.ok) {
+      throw new Error(`Upload failed: ${response.statusText}`)
+    }
+    
+    // Mark as complete
+    await client.rpc("attachment.complete", { id: attachmentId })
+    return { success: true }
+  } catch (error) {
+    // Mark as failed
+    await client.rpc("attachment.fail", {
+      id: attachmentId,
+      reason: error.message
+    })
+    return { success: false, error }
+  }
+}
+```
+</CodeGroup>
+
+### Progress Tracking
+
+Track upload progress for better UX:
+
+<CodeGroup>
+```typescript Upload with Progress
+async function uploadWithProgress(
+  file: File,
+  attachmentId: string,
+  onProgress: (percent: number) => void
+) {
+  const xhr = new XMLHttpRequest()
+  
+  return new Promise((resolve, reject) => {
+    xhr.upload.addEventListener("progress", (e) => {
+      if (e.lengthComputable) {
+        const percent = (e.loaded / e.total) * 100
+        onProgress(percent)
+      }
+    })
+    
+    xhr.addEventListener("load", async () => {
+      if (xhr.status === 200) {
+        await client.rpc("attachment.complete", { id: attachmentId })
+        resolve()
+      } else {
+        await client.rpc("attachment.fail", {
+          id: attachmentId,
+          reason: `HTTP ${xhr.status}`
+        })
+        reject(new Error(`Upload failed: ${xhr.status}`))
+      }
+    })
+    
+    xhr.addEventListener("error", async () => {
+      await client.rpc("attachment.fail", {
+        id: attachmentId,
+        reason: "Network error"
+      })
+      reject(new Error("Upload failed"))
+    })
+    
+    xhr.open("PUT", presignedUrl)
+    xhr.send(file)
+  })
+}
+```
+</CodeGroup>

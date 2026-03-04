@@ -1,0 +1,341 @@
+---
+title: File Attachments
+description: Upload and share files securely with Cloudflare R2 storage and presigned URLs
+icon: paperclip
+---
+
+Hazel Chat supports secure file uploads with direct-to-storage upload using presigned URLs, stored in Cloudflare R2 with public-read access.
+
+## Overview
+
+The attachment system provides:
+
+- Direct upload to Cloudflare R2 storage
+- Presigned URL generation for secure uploads
+- Support for all file types (images, videos, documents, archives)
+- Status tracking (uploading, complete, failed)
+- Automatic linking to messages
+- Organization and channel-scoped storage
+
+<CardGroup cols={2}>
+  <Card title="Direct Uploads" icon="cloud-arrow-up">
+    Files upload directly to R2 storage without routing through the backend
+  </Card>
+  <Card title="Presigned URLs" icon="key">
+    Secure, time-limited upload URLs with 5-minute expiration
+  </Card>
+  <Card title="Status Tracking" icon="list-check">
+    Monitor upload progress with uploading, complete, and failed states
+  </Card>
+  <Card title="Public Access" icon="globe">
+    Files are stored with public-read ACL for easy sharing
+  </Card>
+</CardGroup>
+
+## Uploading Files
+
+### Attach to Messages
+
+Upload files when composing messages:
+
+1. Click the **attachment icon** (📎) in the message composer
+2. Select one or more files from your computer
+3. Files begin uploading immediately
+4. Upload progress is shown for each file
+5. Once complete, add your message text
+6. Send the message with attachments
+
+Attachments are linked to the message when you send it.
+
+### Direct Upload Flow
+
+The upload process works in multiple stages:
+
+**Stage 1: Request Presigned URL**
+```typescript
+const response = await rpcClient.uploadPresign({
+  type: "attachment",
+  organizationId: "org_123",
+  channelId: "channel_456",
+  fileName: "document.pdf",
+  fileSize: 1024000,
+  contentType: "application/pdf"
+})
+```
+
+This creates an attachment record with "uploading" status and returns:
+- `uploadUrl` - Presigned S3 PUT URL
+- `key` - Attachment ID (used as storage key)
+- `publicUrl` - Public access URL after upload
+- `resourceId` - Attachment ID for linking to messages
+
+**Stage 2: Direct Upload to R2**
+```typescript
+await fetch(response.uploadUrl, {
+  method: "PUT",
+  body: fileBlob,
+  headers: {
+    "Content-Type": contentType
+  }
+})
+```
+
+File uploads directly to Cloudflare R2 storage.
+
+**Stage 3: Mark Complete**
+```typescript
+await rpcClient.attachmentComplete({
+  id: response.resourceId
+})
+```
+
+Updates attachment status to "complete".
+
+<Info>
+  Presigned URLs expire after 5 minutes. If your upload takes longer, request a new presigned URL.
+</Info>
+
+## Upload Failure Handling
+
+If an upload fails:
+
+1. The client detects the failure (network error, timeout, etc.)
+2. Call `attachment.fail` RPC with the attachment ID:
+   ```typescript
+   await rpcClient.attachmentFail({
+     id: attachmentId,
+     reason: "Network timeout"
+   })
+   ```
+3. Attachment status is set to "failed"
+4. User can retry the upload
+
+## Supported File Types
+
+All file types are supported:
+
+**Documents:**
+- PDF documents
+- Microsoft Office files (Word, Excel, PowerPoint)
+- Text files and code
+
+**Images:**
+- JPEG, PNG, GIF, WebP
+- SVG and other vector formats
+- Raw image formats
+
+**Videos:**
+- MP4, WebM, MOV
+- Other common video formats
+
+**Archives:**
+- ZIP, TAR, GZ
+- RAR and 7Z
+
+**Other:**
+- Audio files
+- Executable files
+- Any other file type
+
+<Warning>
+  While all file types are supported, consider security when sharing executable files or archives. Users should scan downloads with antivirus software.
+</Warning>
+
+## File Size Limits
+
+Upload limits:
+
+- **Default**: No hard limit in the application
+- **Practical**: Limited by browser memory and R2 storage quotas
+- **Recommended**: Keep files under 100MB for best performance
+
+Very large files may timeout during upload. For files over 100MB, consider using a dedicated file transfer service.
+
+## Storage Structure
+
+Files are stored in Cloudflare R2 with the following structure:
+
+```
+{attachmentId}                     # Root-level by attachment ID
+avatars/
+  {userId}/{fileId}               # User avatars
+  bots/{botId}/{fileId}           # Bot avatars
+  organizations/{orgId}/{fileId}   # Organization logos
+emojis/
+  {organizationId}/{fileId}       # Custom emoji images
+```
+
+Attachments use their ID as the storage key for simple, flat organization.
+
+## Accessing Files
+
+Files are publicly accessible via their public URL:
+
+```
+https://storage.hazelchat.com/{attachmentId}
+```
+
+The public URL is returned when requesting a presigned upload URL.
+
+### Generating Public URLs
+
+If `S3_PUBLIC_URL` environment variable is configured:
+```typescript
+const publicUrl = `${process.env.S3_PUBLIC_URL}/${attachmentId}`
+```
+
+Otherwise, the attachment ID is returned as the key, and the frontend constructs the URL.
+
+## Deleting Attachments
+
+Remove attachments from the system:
+
+1. Hover over an attachment in a message
+2. Click the **Delete** button
+3. Confirm deletion
+
+This soft-deletes the attachment record:
+- Sets `deletedAt` timestamp
+- Attachment no longer appears in UI
+- File remains in R2 storage (for recovery)
+
+<Note>
+  Only the uploader or organization admins can delete attachments.
+</Note>
+
+## Other Upload Types
+
+The presign endpoint supports multiple upload types:
+
+### User Avatars
+
+```typescript
+await rpcClient.uploadPresign({
+  type: "user-avatar",
+  fileSize: 50000,
+  contentType: "image/png"
+})
+```
+
+Stores in `avatars/{userId}/{randomId}`
+
+### Bot Avatars
+
+```typescript
+await rpcClient.uploadPresign({
+  type: "bot-avatar",
+  botId: "bot_123",
+  fileSize: 50000,
+  contentType: "image/png"
+})
+```
+
+Stores in `avatars/bots/{botId}/{randomId}`
+
+### Organization Logos
+
+```typescript
+await rpcClient.uploadPresign({
+  type: "organization-avatar",
+  organizationId: "org_123",
+  fileSize: 100000,
+  contentType: "image/png"
+})
+```
+
+Stores in `avatars/organizations/{orgId}/{randomId}`
+
+### Custom Emoji
+
+```typescript
+await rpcClient.uploadPresign({
+  type: "custom-emoji",
+  organizationId: "org_123",
+  fileSize: 25000,
+  contentType: "image/png"
+})
+```
+
+Stores in `emojis/{organizationId}/{randomId}`
+
+## Rate Limiting
+
+Avatar and emoji uploads are rate-limited:
+
+- **5 uploads per hour per user**
+- Prevents abuse and excessive storage usage
+- Applies to all avatar and emoji uploads
+- Attachment uploads are not rate-limited
+
+## Technical Details
+
+### Attachment Data Model
+
+```typescript
+{
+  id: string                 // Attachment ID (also storage key)
+  organizationId: string     // Parent organization
+  channelId: string | null   // Optional channel context
+  messageId: string | null   // Linked message (set when message is sent)
+  fileName: string           // Original filename
+  fileSize: number          // Size in bytes
+  externalUrl: string | null // Optional external URL (for links)
+  uploadedBy: string        // User who uploaded
+  status: "uploading" | "complete" | "failed"
+  uploadedAt: Date          // Upload initiation time
+  deletedAt: Date | null    // Soft delete timestamp
+}
+```
+
+### Database Indexes
+
+Optimized queries with indexes on:
+- `organization_id` - Organization-scoped files
+- `channel_id` - Channel attachments
+- `message_id` - Message attachments
+- `message_id, uploaded_at` - Chronological message attachments
+- `uploaded_by` - User's uploads
+- `status` - Filter by upload status
+- `deleted_at` - Exclude deleted files
+
+### S3/R2 Configuration
+
+Environment variables:
+
+```bash
+S3_ENDPOINT=https://account-id.r2.cloudflarestorage.com
+S3_ACCESS_KEY_ID=your-access-key
+S3_SECRET_ACCESS_KEY=your-secret-key
+S3_BUCKET=hazel-chat-attachments
+S3_REGION=auto
+S3_PUBLIC_URL=https://storage.hazelchat.com
+```
+
+### Presigned URL Generation
+
+Presigned URLs are generated with:
+- **Method**: PUT
+- **ACL**: public-read
+- **Content-Type**: Specified in request
+- **Expiration**: 300 seconds (5 minutes)
+
+### Permissions
+
+**Upload Attachments:**
+- Must be organization member
+- Must have access to the specified channel
+
+**Delete Attachments:**
+- Original uploader
+- Organization admin/owner
+
+**Complete/Fail Upload:**
+- Only the original uploader
+
+### Security Considerations
+
+- Presigned URLs are time-limited (5 minutes)
+- Only authenticated users can request presigned URLs
+- Upload permissions validated before URL generation
+- Files stored with public-read for easy sharing
+- No direct backend upload path (prevents server load)

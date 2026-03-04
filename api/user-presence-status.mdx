@@ -1,0 +1,322 @@
+---
+title: User Presence Status API
+description: Manage user presence, custom status messages, and activity tracking
+---
+
+The User Presence Status API allows you to manage user availability status (online, away, busy, DND, offline), custom status messages with emojis, and activity tracking. All methods require authentication.
+
+## Authentication
+
+All User Presence Status API methods require authentication via the `AuthMiddleware`. Include a valid bearer token in your requests.
+
+## Status Types
+
+The API supports the following presence statuses:
+- `online` - User is active and available
+- `away` - User is inactive or temporarily unavailable
+- `busy` - User is active but should not be disturbed
+- `dnd` - Do Not Disturb mode (suppresses notifications)
+- `offline` - User is not available
+
+## Methods
+
+### Update Presence Status
+
+Update the user's presence status and optional custom message. The userId is automatically set from the authenticated user.
+
+```typescript
+const client = yield* RpcClient
+
+const result = yield* client["userPresenceStatus.update"]({
+  status: "busy",
+  customMessage: "In a meeting",
+  statusEmoji: "📅",
+  statusExpiresAt: new Date(Date.now() + 3600000), // Expires in 1 hour
+  suppressNotifications: true
+})
+```
+
+<ParamField path="status" type="'online' | 'away' | 'busy' | 'dnd' | 'offline'">
+  User's presence status. If not provided, defaults to existing status or "online"
+</ParamField>
+
+<ParamField path="customMessage" type="string | null">
+  Custom status message to display (e.g., "In a meeting", "On vacation"). Set to null to clear.
+</ParamField>
+
+<ParamField path="statusEmoji" type="string | null">
+  Emoji to display with the status (e.g., "📅", "🌴"). Set to null to clear.
+</ParamField>
+
+<ParamField path="statusExpiresAt" type="Date | null">
+  When the custom status should automatically clear. Set to null for no expiration.
+</ParamField>
+
+<ParamField path="activeChannelId" type="ChannelId | null">
+  ID of the channel the user is currently viewing/active in. Set to null to clear.
+</ParamField>
+
+<ParamField path="suppressNotifications" type="boolean">
+  Whether to suppress notifications while this status is active
+</ParamField>
+
+<ResponseField name="data" type="UserPresenceStatus" required>
+  The updated presence status object
+  
+  <Expandable title="UserPresenceStatus properties">
+    <ResponseField name="id" type="UserPresenceStatusId" required>
+      Unique identifier for the presence status record
+    </ResponseField>
+    
+    <ResponseField name="userId" type="UserId" required>
+      ID of the user this status belongs to
+    </ResponseField>
+    
+    <ResponseField name="status" type="'online' | 'away' | 'busy' | 'dnd' | 'offline'" required>
+      Current presence status
+    </ResponseField>
+    
+    <ResponseField name="customMessage" type="string | null">
+      Custom status message
+    </ResponseField>
+    
+    <ResponseField name="statusEmoji" type="string | null">
+      Status emoji
+    </ResponseField>
+    
+    <ResponseField name="statusExpiresAt" type="Date | null">
+      When the status expires
+    </ResponseField>
+    
+    <ResponseField name="activeChannelId" type="ChannelId | null">
+      Currently active channel
+    </ResponseField>
+    
+    <ResponseField name="suppressNotifications" type="boolean" required>
+      Whether notifications are suppressed
+    </ResponseField>
+    
+    <ResponseField name="updatedAt" type="Date" required>
+      When the status was last updated
+    </ResponseField>
+    
+    <ResponseField name="lastSeenAt" type="Date" required>
+      Last heartbeat timestamp (used for offline detection)
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="transactionId" type="TransactionId" required>
+  Transaction ID for optimistic updates
+</ResponseField>
+
+**Errors:**
+- `UnauthorizedError` - User is not authenticated
+- `InternalServerError` - Unexpected server error
+
+**Implementation Notes:**
+- All parameters are optional and merge with existing values
+- If no status record exists, one is created with default values
+- Updates the `lastSeenAt` timestamp as a heartbeat
+- Performed within a database transaction
+
+---
+
+### Heartbeat
+
+Lightweight heartbeat to update the lastSeenAt timestamp. Used for reliable offline detection - if no heartbeat is received within the timeout period, the user is marked offline by a server-side cron job.
+
+```typescript
+const client = yield* RpcClient
+
+// Send heartbeat every 30 seconds
+const result = yield* client["userPresenceStatus.heartbeat"]({})
+console.log("Last seen:", result.lastSeenAt)
+```
+
+<ParamField path="payload" type="{}">
+  Empty object (no parameters)
+</ParamField>
+
+<ResponseField name="lastSeenAt" type="Date" required>
+  Updated timestamp of when the user was last seen active
+</ResponseField>
+
+**Errors:**
+- `UnauthorizedError` - User is not authenticated
+- `InternalServerError` - Unexpected server error
+
+**Implementation Notes:**
+- If no presence status record exists, creates one with "online" status
+- Only updates the `lastSeenAt` field, no other status changes
+- Very lightweight operation designed for frequent polling
+- Typical usage: Send heartbeat every 30-60 seconds from active clients
+
+---
+
+### Clear Custom Status
+
+Clears the user's custom status (emoji, message, and expiration). Does not affect the user's presence status (online/away/etc).
+
+```typescript
+const client = yield* RpcClient
+
+const result = yield* client["userPresenceStatus.clearStatus"]({})
+```
+
+<ParamField path="payload" type="{}">
+  Empty object (no parameters)
+</ParamField>
+
+<ResponseField name="data" type="UserPresenceStatus" required>
+  The updated presence status object with cleared custom status fields
+</ResponseField>
+
+<ResponseField name="transactionId" type="TransactionId" required>
+  Transaction ID for optimistic updates
+</ResponseField>
+
+**Errors:**
+- `UnauthorizedError` - User is not authenticated
+- `InternalServerError` - Unexpected server error
+
+**Implementation Notes:**
+- Clears `customMessage`, `statusEmoji`, and `statusExpiresAt`
+- Preserves the `status` field (online/away/busy/dnd/offline)
+- Preserves the `activeChannelId` field
+- Resets `suppressNotifications` to false
+- Updates the `lastSeenAt` timestamp
+
+## Usage Patterns
+
+<CodeGroup>
+```typescript Set Custom Status with Expiration
+import { Effect } from "effect"
+import { RpcClient } from "@hazel/domain/rpc"
+
+const setTemporaryStatus = Effect.gen(function* () {
+  const client = yield* RpcClient
+  
+  // Set status that expires in 2 hours
+  const expiresAt = new Date(Date.now() + 2 * 60 * 60 * 1000)
+  
+  const result = yield* client["userPresenceStatus.update"]({
+    customMessage: "On lunch break",
+    statusEmoji: "🍕",
+    statusExpiresAt: expiresAt,
+    status: "away"
+  })
+  
+  return result.data
+})
+```
+
+```typescript Heartbeat Loop
+import { Effect, Schedule } from "effect"
+import { RpcClient } from "@hazel/domain/rpc"
+
+// Send heartbeat every 30 seconds
+const heartbeatLoop = Effect.gen(function* () {
+  const client = yield* RpcClient
+  
+  yield* client["userPresenceStatus.heartbeat"]({})
+}).pipe(
+  Effect.repeat(Schedule.fixed("30 seconds"))
+)
+```
+
+```typescript Set Do Not Disturb
+import { Effect } from "effect"
+import { RpcClient } from "@hazel/domain/rpc"
+
+const enableDND = Effect.gen(function* () {
+  const client = yield* RpcClient
+  
+  const result = yield* client["userPresenceStatus.update"]({
+    status: "dnd",
+    customMessage: "Focus time - do not disturb",
+    statusEmoji: "🎯",
+    suppressNotifications: true
+  })
+  
+  return result.data
+})
+```
+
+```typescript Update Active Channel
+import { Effect } from "effect"
+import { RpcClient } from "@hazel/domain/rpc"
+
+const setActiveChannel = (channelId: string) => Effect.gen(function* () {
+  const client = yield* RpcClient
+  
+  const result = yield* client["userPresenceStatus.update"]({
+    activeChannelId: channelId,
+    status: "online"
+  })
+  
+  return result.data
+})
+```
+</CodeGroup>
+
+## Offline Detection
+
+Hazel Chat uses a heartbeat-based system for reliable offline detection:
+
+1. **Client sends heartbeats**: Active clients should call `heartbeat()` every 30-60 seconds
+2. **Server tracks lastSeenAt**: Each heartbeat updates the `lastSeenAt` timestamp
+3. **Server-side cron job**: A background job periodically checks for stale `lastSeenAt` timestamps
+4. **Automatic offline marking**: Users with no recent heartbeat are automatically marked as offline
+
+This approach ensures accurate presence status even if clients disconnect unexpectedly.
+
+## Error Handling
+
+<CodeGroup>
+```typescript Effect Pattern
+import { Effect } from "effect"
+import { RpcClient } from "@hazel/domain/rpc"
+
+const updateStatusSafe = Effect.gen(function* () {
+  const client = yield* RpcClient
+  
+  const result = yield* client["userPresenceStatus.update"]({
+    status: "busy",
+    customMessage: "In a meeting"
+  }).pipe(
+    Effect.catchTag("UnauthorizedError", () =>
+      Effect.fail(new Error("Not authenticated"))
+    ),
+    Effect.catchTag("InternalServerError", (error) =>
+      Effect.fail(new Error(`Server error: ${error.message}`))
+    )
+  )
+  
+  return result
+})
+```
+
+```typescript Try/Catch Pattern
+try {
+  const client = yield* RpcClient
+  
+  const result = yield* client["userPresenceStatus.update"]({
+    status: "away"
+  })
+  
+  console.log("Status updated:", result.data.status)
+} catch (error) {
+  if (error instanceof UnauthorizedError) {
+    console.error("Not authenticated")
+  } else {
+    console.error("Failed to update status:", error)
+  }
+}
+```
+</CodeGroup>
+
+## Related APIs
+
+- [Users API](/api/users) - Manage user accounts and profiles
+- [Notifications API](/api/notifications) - Status affects notification delivery

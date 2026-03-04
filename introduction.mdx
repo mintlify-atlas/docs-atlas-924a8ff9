@@ -1,0 +1,232 @@
+---
+title: Introduction to Hazel Chat
+description: A modern, real-time collaborative chat platform built with Effect-TS, ElectricSQL, React 19, and PostgreSQL
+---
+
+## Welcome to Hazel Chat
+
+Hazel Chat is a full-stack, production-ready chat application that combines cutting-edge technologies with functional programming principles. Built from the ground up with type safety, real-time sync, and distributed workflows in mind.
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Get up and running in under 5 minutes
+  </Card>
+  <Card title="Installation" icon="download" href="/installation">
+    Detailed setup and configuration guide
+  </Card>
+  <Card title="Architecture" icon="sitemap" href="/architecture/overview">
+    Learn about the system design and patterns
+  </Card>
+  <Card title="API Reference" icon="code" href="/api/introduction">
+    Explore the RPC and HTTP APIs
+  </Card>
+</CardGroup>
+
+## What is Hazel Chat?
+
+Hazel Chat is a modern SaaS chat platform featuring real-time messaging, team collaboration, file sharing, and bot integrations. Unlike traditional chat applications, Hazel leverages a local-first architecture with Electric SQL, enabling instant updates and offline support.
+
+## Key features
+
+<CardGroup cols={2}>
+  <Card title="Real-time Messaging" icon="message">
+    Channels and direct messages with instant delivery powered by Electric SQL's real-time sync
+  </Card>
+  <Card title="Local-first Architecture" icon="database">
+    Electric SQL provides offline support and optimistic updates with automatic conflict resolution
+  </Card>
+  <Card title="Team Management" icon="users">
+    Organizations with member roles (owner, admin, member) and invitation system via WorkOS
+  </Card>
+  <Card title="User Presence" icon="circle-dot">
+    Live online/offline status and typing indicators across all channels
+  </Card>
+  <Card title="Message Reactions" icon="face-smile">
+    React to messages with emoji and custom emojis
+  </Card>
+  <Card title="Pinned Messages" icon="thumbtack">
+    Save important messages for quick access in any channel
+  </Card>
+  <Card title="File Attachments" icon="paperclip">
+    Share files with S3-compatible storage (Cloudflare R2 or MinIO)
+  </Card>
+  <Card title="Notifications" icon="bell">
+    Configurable notification system with channel muting and smart delivery
+  </Card>
+  <Card title="Bot Integration" icon="robot">
+    Create and manage bots with a simple RPC-based API
+  </Card>
+  <Card title="Rich Text Editor" icon="pen-fancy">
+    Plate.js powered editor with formatting, mentions, and code blocks
+  </Card>
+  <Card title="Type-safe RPC" icon="shield-check">
+    End-to-end type safety with Effect RPC - compile-time guarantees for all client-server calls
+  </Card>
+  <Card title="Distributed Workflows" icon="network-wired">
+    Background jobs and durable workflows via Effect Cluster and Effect Workflow
+  </Card>
+</CardGroup>
+
+## Tech stack
+
+### Frontend
+
+Hazel's frontend is built with modern React and focuses on performance and developer experience:
+
+- **React 19** with TypeScript for type-safe components
+- **Vite** for fast development and optimized production builds
+- **TanStack Router** with file-based routing
+- **TanStack DB** for local data management with reactive queries
+- **TailwindCSS v4** for utility-first styling
+- **React Aria Components** for accessible UI primitives
+- **Electric SQL** for local-first real-time sync with PostgreSQL
+
+### Backend
+
+The backend leverages functional programming with Effect-TS for reliability and composability:
+
+- **Bun** runtime for performance
+- **Effect-TS** functional programming framework with dependency injection
+- **Effect RPC** for type-safe client-server communication
+- **Drizzle ORM** with PostgreSQL for data persistence
+- **WorkOS** for authentication and organization management
+
+### Cluster service
+
+Distributed background jobs and durable workflows:
+
+- **Effect Cluster** for distributed entity management
+- **Effect Workflow** for durable, fault-tolerant background jobs
+- PostgreSQL-backed message persistence
+- HTTP API for workflow execution and monitoring (port 3020)
+
+### Infrastructure
+
+- **PostgreSQL 17** with logical replication for Electric SQL
+- **Redis** for caching and Sequin CDC
+- **Electric SQL** for real-time database sync
+- **MinIO** or Cloudflare R2 for S3-compatible object storage
+- **Turborepo** for monorepo orchestration
+
+## Architecture overview
+
+Hazel Chat follows a modular monorepo architecture:
+
+```
+hazel-chat/
+├── apps/
+│   ├── web/                 # React frontend (port 3000)
+│   ├── backend/             # Effect-TS API server (port 3003)
+│   ├── cluster/             # Distributed workflow service (port 3020)
+│   ├── electric-proxy/      # Electric SQL proxy worker
+│   └── link-preview-worker/ # Link preview generation
+├── packages/
+│   ├── db/                  # Drizzle ORM schemas
+│   ├── domain/              # RPC contracts, cluster definitions
+│   ├── backend-core/        # Reusable backend services
+│   ├── schema/              # Shared type definitions
+│   └── ...
+└── .context/                # Library documentation
+```
+
+### Effect-TS patterns
+
+The backend uses Effect-TS for:
+
+- **Dependency injection** via layers and services - compose complex applications from simple building blocks
+- **Error handling** with typed errors - all error cases are explicit in function signatures
+- **Resource management** with scoped resources - automatic cleanup and proper lifecycle management
+- **Concurrency** with fibers and streams - structured concurrency for reliable async operations
+
+### RPC system
+
+Type-safe client-server communication using Effect RPC:
+
+```typescript apps/backend/src/rpc/handlers/messages.ts
+import { MessageRpcs } from "@hazel/domain/rpc"
+import { Effect } from "effect"
+
+export const MessageRpcLive = MessageRpcs.toLayer(
+  Effect.gen(function* () {
+    const db = yield* Database.Database
+
+    return {
+      "message.create": ({ attachmentIds, ...messageData }) =>
+        Effect.gen(function* () {
+          const user = yield* CurrentUser.Context
+          yield* checkMessageRateLimit(user.id)
+
+          const response = yield* db.transaction(
+            Effect.gen(function* () {
+              const createdMessage = yield* MessageRepo.insert({
+                ...messageData,
+                authorId: user.id,
+              })
+              // ...
+            })
+          )
+          return response
+        }),
+    }
+  })
+)
+```
+
+This provides:
+- Full type inference across the client-server boundary
+- Automatic serialization/deserialization
+- Compile-time contract validation
+
+### Real-time sync
+
+Electric SQL provides local-first data synchronization:
+
+```typescript apps/web/src/db/collections.ts
+export const organizationCollection = createEffectCollection({
+  id: "organizations",
+  runtime: runtime,
+  shapeOptions: {
+    url: electricUrl,
+    params: {
+      table: "organizations",
+    },
+    parser: {
+      timestamptz: (date) => new Date(date),
+    },
+  },
+  schema: Organization.Model.json,
+  getKey: (item) => item.id,
+})
+```
+
+This enables:
+- Optimistic updates with automatic conflict resolution
+- Offline support with background sync
+- Reactive queries via TanStack Query integration
+- Sub-millisecond UI updates
+
+### Workflow system
+
+Effect Cluster handles background jobs with durable execution:
+
+- Automatic retries and failure handling
+- PostgreSQL-backed persistence for reliability
+- Idempotency keys to prevent duplicate work
+- Activity-based composition for testable workflows
+
+## What's next?
+
+<CardGroup cols={2}>
+  <Card title="Get Started" icon="play" href="/quickstart">
+    Follow the quickstart guide to build your first feature
+  </Card>
+  <Card title="Learn the Stack" icon="book" href="/architecture/overview">
+    Deep dive into the architecture and patterns
+  </Card>
+  <Card title="Explore the API" icon="terminal" href="/api/introduction">
+    Browse the RPC and HTTP API documentation
+  </Card>
+  <Card title="Deploy" icon="cloud" href="/guides/deployment">
+    Deploy to production with Docker or Railway
+  </Card>
+</CardGroup>

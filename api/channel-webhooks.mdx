@@ -1,0 +1,466 @@
+---
+title: "Channel Webhooks API"
+description: "Create and manage incoming webhooks for channels"
+---
+
+## Overview
+
+The Channel Webhooks API allows you to create incoming webhooks that can post messages to channels programmatically. Webhooks are useful for integrations with external services like CI/CD pipelines, monitoring tools, and third-party applications.
+
+Each webhook creates a bot user that posts messages on behalf of the webhook. Only organization admins can manage webhooks.
+
+## Security
+
+- Webhook tokens are only shown once during creation or regeneration
+- Tokens are stored as SHA-256 hashes in the database
+- Tokens can be regenerated at any time, immediately invalidating the old token
+- Webhooks can be enabled/disabled without regenerating tokens
+
+## Methods
+
+### channelWebhook.create
+
+Creates a new webhook for a channel. A new bot user is created for this webhook. Returns the webhook data including the plain token (only shown once).
+
+<ParamField path="channelId" type="string" required>
+  Channel ID where the webhook will post messages
+</ParamField>
+
+<ParamField path="name" type="string" required>
+  Webhook name (1-100 characters)
+</ParamField>
+
+<ParamField path="description" type="string">
+  Webhook description (max 500 characters)
+</ParamField>
+
+<ParamField path="avatarUrl" type="string">
+  Avatar URL for the webhook bot user
+</ParamField>
+
+<ParamField path="integrationProvider" type="'openstatus' | 'railway'">
+  When set, uses a global integration bot user instead of creating a unique webhook bot
+</ParamField>
+
+<ResponseField name="data" type="ChannelWebhook">
+  <Expandable title="ChannelWebhook object">
+    <ResponseField name="id" type="string">
+      Webhook ID
+    </ResponseField>
+    <ResponseField name="channelId" type="string">
+      Channel ID
+    </ResponseField>
+    <ResponseField name="organizationId" type="string">
+      Organization ID
+    </ResponseField>
+    <ResponseField name="botUserId" type="string">
+      Bot user ID that posts messages
+    </ResponseField>
+    <ResponseField name="name" type="string">
+      Webhook name
+    </ResponseField>
+    <ResponseField name="description" type="string | null">
+      Webhook description
+    </ResponseField>
+    <ResponseField name="avatarUrl" type="string | null">
+      Avatar URL for the bot user
+    </ResponseField>
+    <ResponseField name="tokenSuffix" type="string">
+      Last 4 characters of the token (for identification)
+    </ResponseField>
+    <ResponseField name="isEnabled" type="boolean">
+      Whether the webhook is enabled
+    </ResponseField>
+    <ResponseField name="createdBy" type="string">
+      User ID who created the webhook
+    </ResponseField>
+    <ResponseField name="lastUsedAt" type="string | null">
+      ISO 8601 timestamp of last use
+    </ResponseField>
+    <ResponseField name="createdAt" type="string">
+      ISO 8601 timestamp
+    </ResponseField>
+    <ResponseField name="deletedAt" type="string | null">
+      ISO 8601 timestamp if soft-deleted
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="token" type="string">
+  Plain webhook token (only returned once)
+</ResponseField>
+
+<ResponseField name="webhookUrl" type="string">
+  Full webhook URL for posting messages
+</ResponseField>
+
+<ResponseField name="transactionId" type="string">
+  Transaction ID for optimistic updates
+</ResponseField>
+
+<CodeGroup>
+```typescript Example
+const result = await client.channelWebhook.create({
+  channelId: "ch-abc123",
+  name: "CI/CD Notifications",
+  description: "Notifications from GitHub Actions",
+  avatarUrl: "https://example.com/avatar.png"
+});
+
+// Save the token and webhookUrl - they won't be shown again!
+console.log(result.token);
+console.log(result.webhookUrl);
+```
+
+```typescript Response
+{
+  data: {
+    id: "wh-xyz789",
+    channelId: "ch-abc123",
+    organizationId: "org-123",
+    botUserId: "bot-456",
+    name: "CI/CD Notifications",
+    description: "Notifications from GitHub Actions",
+    avatarUrl: "https://example.com/avatar.png",
+    tokenSuffix: "a1b2",
+    isEnabled: true,
+    createdBy: "user-123",
+    lastUsedAt: null,
+    createdAt: "2024-03-15T10:00:00Z",
+    deletedAt: null
+  },
+  token: "64-character-hex-token",
+  webhookUrl: "https://api.hazel.chat/webhooks/incoming/wh-xyz789/64-character-hex-token",
+  transactionId: "txn-abc"
+}
+```
+</CodeGroup>
+
+**Important:** Store the `token` and `webhookUrl` securely. The token cannot be retrieved again after creation.
+
+**Errors:**
+- `ChannelNotFoundError` - Channel doesn't exist
+- `UnauthorizedError` - User is not org admin
+- `InternalServerError` - Unexpected server error
+
+---
+
+### channelWebhook.list
+
+Lists all webhooks for a channel.
+
+<ParamField path="channelId" type="string" required>
+  Channel ID
+</ParamField>
+
+<ResponseField name="data" type="ChannelWebhook[]">
+  Array of webhook objects (without token hashes)
+</ResponseField>
+
+<CodeGroup>
+```typescript Example
+const result = await client.channelWebhook.list({
+  channelId: "ch-abc123"
+});
+```
+
+```typescript Response
+{
+  data: [
+    {
+      id: "wh-xyz789",
+      channelId: "ch-abc123",
+      name: "CI/CD Notifications",
+      tokenSuffix: "a1b2",
+      isEnabled: true,
+      // ... other fields
+    }
+  ]
+}
+```
+</CodeGroup>
+
+**Errors:**
+- `ChannelNotFoundError` - Channel doesn't exist
+- `UnauthorizedError` - User is not org admin
+- `InternalServerError` - Unexpected server error
+
+---
+
+### channelWebhook.listByOrganization
+
+Lists all webhooks for the user's organization. Used by the integration settings page to show all configured webhooks.
+
+<ResponseField name="data" type="ChannelWebhook[]">
+  Array of webhooks across all channels in the organization
+</ResponseField>
+
+<CodeGroup>
+```typescript Example
+const result = await client.channelWebhook.listByOrganization({});
+```
+
+```typescript Response
+{
+  data: [
+    {
+      id: "wh-xyz789",
+      channelId: "ch-abc123",
+      name: "CI/CD Notifications",
+      // ...
+    },
+    {
+      id: "wh-abc123",
+      channelId: "ch-def456",
+      name: "Monitoring Alerts",
+      // ...
+    }
+  ]
+}
+```
+</CodeGroup>
+
+**Errors:**
+- `UnauthorizedError` - User is not authenticated
+- `InternalServerError` - Unexpected server error
+
+---
+
+### channelWebhook.update
+
+Updates webhook configuration (name, description, avatar, enabled).
+
+<ParamField path="id" type="string" required>
+  Webhook ID to update
+</ParamField>
+
+<ParamField path="name" type="string">
+  New webhook name (1-100 characters)
+</ParamField>
+
+<ParamField path="description" type="string | null">
+  New description (max 500 characters) or null to remove
+</ParamField>
+
+<ParamField path="avatarUrl" type="string | null">
+  New avatar URL or null to remove
+</ParamField>
+
+<ParamField path="isEnabled" type="boolean">
+  Enable or disable the webhook
+</ParamField>
+
+<ResponseField name="data" type="ChannelWebhook">
+  Updated webhook object
+</ResponseField>
+
+<ResponseField name="transactionId" type="string">
+  Transaction ID for optimistic updates
+</ResponseField>
+
+<CodeGroup>
+```typescript Rename webhook
+const result = await client.channelWebhook.update({
+  id: "wh-xyz789",
+  name: "GitHub CI/CD"
+});
+```
+
+```typescript Disable webhook
+const result = await client.channelWebhook.update({
+  id: "wh-xyz789",
+  isEnabled: false
+});
+```
+</CodeGroup>
+
+**Note:** Updating name or avatar also updates the associated bot user.
+
+**Errors:**
+- `ChannelWebhookNotFoundError` - Webhook doesn't exist
+- `UnauthorizedError` - User is not org admin
+- `InternalServerError` - Unexpected server error
+
+---
+
+### channelWebhook.regenerateToken
+
+Generates a new token for a webhook. The old token is invalidated immediately.
+
+<ParamField path="id" type="string" required>
+  Webhook ID
+</ParamField>
+
+<ResponseField name="data" type="ChannelWebhook">
+  Webhook object with updated tokenSuffix
+</ResponseField>
+
+<ResponseField name="token" type="string">
+  New plain webhook token (only returned once)
+</ResponseField>
+
+<ResponseField name="webhookUrl" type="string">
+  Updated webhook URL with new token
+</ResponseField>
+
+<ResponseField name="transactionId" type="string">
+  Transaction ID for optimistic updates
+</ResponseField>
+
+<CodeGroup>
+```typescript Example
+const result = await client.channelWebhook.regenerateToken({
+  id: "wh-xyz789"
+});
+
+// Save the new token and URL - the old token is now invalid!
+console.log(result.token);
+console.log(result.webhookUrl);
+```
+
+```typescript Response
+{
+  data: {
+    id: "wh-xyz789",
+    tokenSuffix: "c3d4", // New suffix
+    // ... other fields
+  },
+  token: "new-64-character-hex-token",
+  webhookUrl: "https://api.hazel.chat/webhooks/incoming/wh-xyz789/new-64-character-hex-token",
+  transactionId: "txn-def"
+}
+```
+</CodeGroup>
+
+**Important:** The old token is immediately invalidated. Update all systems using the webhook.
+
+**Errors:**
+- `ChannelWebhookNotFoundError` - Webhook doesn't exist
+- `UnauthorizedError` - User is not org admin
+- `InternalServerError` - Unexpected server error
+
+---
+
+### channelWebhook.delete
+
+Deletes a webhook (soft delete).
+
+<ParamField path="id" type="string" required>
+  Webhook ID to delete
+</ParamField>
+
+<ResponseField name="transactionId" type="string">
+  Transaction ID for optimistic updates
+</ResponseField>
+
+<CodeGroup>
+```typescript Example
+const result = await client.channelWebhook.delete({
+  id: "wh-xyz789"
+});
+```
+
+```typescript Response
+{
+  transactionId: "txn-xyz789"
+}
+```
+</CodeGroup>
+
+**Note:** The webhook is soft-deleted. The bot user is not automatically deleted and may be cleaned up separately.
+
+**Errors:**
+- `ChannelWebhookNotFoundError` - Webhook doesn't exist
+- `UnauthorizedError` - User is not org admin
+- `InternalServerError` - Unexpected server error
+
+## Using Webhooks
+
+Once created, send POST requests to the webhook URL:
+
+<CodeGroup>
+```bash cURL
+curl -X POST "https://api.hazel.chat/webhooks/incoming/wh-xyz789/your-token" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "content": "Build completed successfully!",
+    "embeds": [
+      {
+        "title": "Deployment Status",
+        "description": "Production deployment succeeded",
+        "color": "#00ff00"
+      }
+    ]
+  }'
+```
+
+```javascript JavaScript
+fetch(webhookUrl, {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    content: 'Build completed successfully!',
+    embeds: [{
+      title: 'Deployment Status',
+      description: 'Production deployment succeeded',
+      color: '#00ff00'
+    }]
+  })
+});
+```
+
+```python Python
+import requests
+
+requests.post(webhook_url, json={
+    'content': 'Build completed successfully!',
+    'embeds': [{
+        'title': 'Deployment Status',
+        'description': 'Production deployment succeeded',
+        'color': '#00ff00'
+    }]
+})
+```
+</CodeGroup>
+
+## Complete Example
+
+<CodeGroup>
+```typescript Setup and Usage
+// 1. Create webhook
+const webhook = await client.channelWebhook.create({
+  channelId: "ch-abc123",
+  name: "GitHub Actions",
+  description: "CI/CD notifications from GitHub"
+});
+
+// 2. Store credentials securely
+const WEBHOOK_URL = webhook.webhookUrl;
+const WEBHOOK_TOKEN = webhook.token;
+
+// 3. Use webhook in external service
+await fetch(WEBHOOK_URL, {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    content: 'Deployment completed'
+  })
+});
+
+// 4. Later: Disable temporarily
+await client.channelWebhook.update({
+  id: webhook.data.id,
+  isEnabled: false
+});
+
+// 5. If compromised: Regenerate token
+const newCreds = await client.channelWebhook.regenerateToken({
+  id: webhook.data.id
+});
+
+// 6. When done: Delete webhook
+await client.channelWebhook.delete({
+  id: webhook.data.id
+});
+```
+</CodeGroup>

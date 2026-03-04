@@ -1,0 +1,143 @@
+---
+title: Integration Overview
+description: Extend Hazel Chat with bots, webhooks, and third-party integrations
+---
+
+Hazel Chat offers powerful integration capabilities to extend your workspace with automation, notifications, and third-party services.
+
+## Available Integrations
+
+<CardGroup cols={2}>
+  <Card
+    title="Bots"
+    icon="robot"
+    href="/integrations/bots"
+  >
+    Create custom bots with the Bot SDK to automate tasks, respond to messages, and integrate with external services.
+  </Card>
+  
+  <Card
+    title="GitHub"
+    icon="github"
+    href="/integrations/github"
+  >
+    Subscribe channels to GitHub repositories and receive real-time notifications for commits, PRs, issues, and more.
+  </Card>
+  
+  <Card
+    title="RSS Feeds"
+    icon="rss"
+    href="/integrations/rss-feeds"
+  >
+    Subscribe channels to RSS feeds and automatically post new items as they're published.
+  </Card>
+  
+  <Card
+    title="Webhooks"
+    icon="webhook"
+    href="/integrations/webhooks"
+  >
+    Create incoming webhooks for channels to receive notifications from external services.
+  </Card>
+</CardGroup>
+
+## Integration Use Cases
+
+### Automation & Workflows
+
+- **CI/CD Notifications**: Receive GitHub deployment and workflow run updates in dedicated channels
+- **Issue Tracking**: Create Linear issues directly from chat messages with the Linear bot
+- **Content Aggregation**: Automatically post new blog posts, release notes, or news articles via RSS
+- **Custom Alerts**: Send notifications from monitoring tools using channel webhooks
+
+### AI & Assistance
+
+- **AI Agents**: Build intelligent bots that respond to @mentions and slash commands
+- **Context-Aware Helpers**: Create bots that use conversation history to provide relevant assistance
+- **Tool Integration**: Connect AI models with Linear, Craft, and other third-party APIs
+
+### Team Collaboration
+
+- **Code Reviews**: Subscribe engineering channels to GitHub PR notifications
+- **Release Announcements**: Post changelogs automatically using RSS or webhooks
+- **Status Updates**: Build bots that share deployment status, metrics, or system health
+
+## Getting Started
+
+<Steps>
+  <Step title="Choose Your Integration">
+    Select the integration type that best fits your use case:
+    
+    - **Bots** for custom logic and interactive features
+    - **GitHub** for repository notifications
+    - **RSS** for content aggregation
+    - **Webhooks** for simple incoming notifications
+  </Step>
+  
+  <Step title="Set Up Authentication">
+    - **Bots**: Create a bot and generate an API token from Settings → Bots
+    - **GitHub**: Install the Hazel GitHub App for your organization
+    - **RSS & Webhooks**: No authentication required (organization admin only)
+  </Step>
+  
+  <Step title="Configure Integration">
+    Follow the specific integration guide:
+    
+    - [Bot Creation & API](/integrations/bots)
+    - [GitHub Setup](/integrations/github)
+    - [RSS Subscriptions](/integrations/rss-feeds)
+    - [Webhook Configuration](/integrations/webhooks)
+  </Step>
+  
+  <Step title="Test & Deploy">
+    - Test your integration in a development channel
+    - Monitor logs and events to ensure proper operation
+    - Deploy to production channels once validated
+  </Step>
+</Steps>
+
+## Integration Permissions
+
+### Bot Scopes
+
+Bots request specific scopes during creation:
+
+- `messages:read` - Read messages in channels where the bot is installed
+- `messages:write` - Send messages to channels
+- `channels:read` - Read channel information
+- `channels:write` - Create threads and update channel metadata
+- `users:read` - Read user information
+- `reactions:write` - Add/remove reactions on messages
+- `commands:register` - Register slash commands
+
+### GitHub & RSS
+
+- Requires organization admin permissions to create subscriptions
+- Subscriptions are channel-specific
+- Events are posted as the integration bot user
+
+### Webhooks
+
+- Requires organization admin permissions to create webhooks
+- Each webhook gets a unique token and URL
+- Webhooks can be enabled/disabled without deleting
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Build Your First Bot" icon="code" href="/integrations/bots">
+    Learn how to create a bot with the Hazel Bot SDK
+  </Card>
+  
+  <Card title="GitHub Integration" icon="github" href="/integrations/github">
+    Connect GitHub repositories to your channels
+  </Card>
+  
+  <Card title="RSS Feeds" icon="rss" href="/integrations/rss-feeds">
+    Subscribe to RSS feeds for automated content
+  </Card>
+  
+  <Card title="Incoming Webhooks" icon="webhook" href="/integrations/webhooks">
+    Set up webhooks for external notifications
+  </Card>
+</CardGroup>

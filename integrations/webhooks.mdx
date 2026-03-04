@@ -1,0 +1,436 @@
+---
+title: Channel Webhooks
+description: Create incoming webhooks for external service notifications
+---
+
+Create incoming webhooks for Hazel Chat channels to receive notifications from external services like CI/CD tools, monitoring systems, and custom applications.
+
+## Overview
+
+Channel webhooks allow you to:
+
+- **Receive messages** from external services via HTTP POST
+- **Authenticate requests** with unique webhook tokens
+- **Customize bot appearance** with names and avatars
+- **Enable/disable** webhooks without deleting them
+- **Regenerate tokens** when needed
+
+Webhooks post messages as a dedicated bot user in the channel.
+
+## Creating Webhooks
+
+<Steps>
+  <Step title="Create Webhook">
+    Create a webhook for a channel:
+    
+    ```typescript
+    import { ChannelWebhookRpcs } from "@hazel/domain/rpc"
+    
+    const { data: webhook, token, webhookUrl } = yield* rpc.channelWebhook.create({
+      channelId: "channel_abc123",
+      name: "Deploy Bot",
+      description: "Deployment notifications from CI/CD",
+      avatarUrl: "https://example.com/deploy-bot.png", // Optional
+    })
+    
+    // Save token and URL securely - token is only shown once!
+    console.log("Webhook URL:", webhookUrl)
+    console.log("Token:", token)
+    ```
+    
+    The webhook URL format is:
+    ```
+    https://api.hazel.sh/webhooks/{webhookId}/{token}
+    ```
+  </Step>
+  
+  <Step title="Send Messages">
+    Post messages by sending a POST request with JSON payload:
+    
+    ```bash
+    curl -X POST \
+      https://api.hazel.sh/webhooks/{webhookId}/{token} \
+      -H "Content-Type: application/json" \
+      -d '{
+        "content": "Deployment to production succeeded ✅"
+      }'
+    ```
+    
+    The message will appear in the channel as if sent by the webhook bot.
+  </Step>
+  
+  <Step title="Configure External Service">
+    Use the webhook URL in your external service:
+    
+    - **GitHub Actions**: Use webhook URL in notification step
+    - **CircleCI**: Configure webhook in project settings
+    - **Monitoring Tools**: Add webhook as alert destination
+    - **Custom Apps**: POST to webhook URL from your application
+  </Step>
+</Steps>
+
+## Integration Providers
+
+Webhooks can use global integration bot users for consistent branding:
+
+```typescript
+const { data: webhook, token, webhookUrl } = yield* rpc.channelWebhook.create({
+  channelId: "channel_abc123",
+  name: "Railway Notifications",
+  integrationProvider: "railway", // Uses global Railway bot
+})
+
+// Supported providers:
+// - "openstatus" - OpenStatus monitoring
+// - "railway" - Railway deployments
+```
+
+Integration providers use a shared bot user across all channels, providing consistent naming and avatars.
+
+## Message Format
+
+### Simple Text Message
+
+```bash
+curl -X POST $WEBHOOK_URL \
+  -H "Content-Type: application/json" \
+  -d '{
+    "content": "Build completed successfully"
+  }'
+```
+
+### Rich Content
+
+Webhooks support the same message format as the bot API:
+
+```json
+{
+  "content": "Deployment to production\n\n**Status**: Success ✅\n**Duration**: 3m 42s\n**Commit**: abc1234"
+}
+```
+
+Markdown formatting is supported:
+- **Bold** with `**text**`
+- *Italic* with `*text*`
+- Code with `` `code` ``
+- Links with `[text](url)`
+
+## Managing Webhooks
+
+### List Webhooks
+
+<CodeGroup>
+```typescript By Channel
+const { data: webhooks } = yield* rpc.channelWebhook.list({
+  channelId: "channel_abc123",
+})
+```
+
+```typescript By Organization
+const { data: webhooks } = yield* rpc.channelWebhook.listByOrganization({})
+```
+</CodeGroup>
+
+### Update Webhook
+
+```typescript
+const { data: webhook } = yield* rpc.channelWebhook.update({
+  id: webhookId,
+  name: "Production Deploys",
+  description: "Notifications for prod deployments only",
+  avatarUrl: "https://example.com/new-avatar.png",
+  isEnabled: true,
+})
+```
+
+### Regenerate Token
+
+If a token is compromised, regenerate it:
+
+```typescript
+const { data: webhook, token, webhookUrl } = yield* rpc.channelWebhook.regenerateToken({
+  id: webhookId,
+})
+
+// Old token is invalidated immediately
+// Update external services with new webhook URL
+```
+
+### Disable Webhook
+
+Temporarily disable without deleting:
+
+```typescript
+const { data: webhook } = yield* rpc.channelWebhook.update({
+  id: webhookId,
+  isEnabled: false,
+})
+```
+
+### Delete Webhook
+
+```typescript
+const { transactionId } = yield* rpc.channelWebhook.delete({
+  id: webhookId,
+})
+```
+
+## Webhook Schema
+
+Each webhook includes:
+
+```typescript packages/domain/src/models/channel-webhook-model.ts:6-25
+export class Model extends M.Class<Model>("ChannelWebhook")({
+  id: M.Generated(ChannelWebhookId),
+  channelId: ChannelId,
+  organizationId: OrganizationId,
+  botUserId: UserId, // Bot user that sends messages
+  name: Schema.String,
+  description: Schema.NullOr(Schema.String),
+  tokenHash: Schema.String, // Hashed token for security
+  isEnabled: Schema.Boolean,
+  integrationProvider: Schema.NullOr(
+    Schema.Literal("openstatus", "railway")
+  ),
+  createdBy: UserId,
+  createdAt: M.Generated(JsonDate),
+  updatedAt: M.Generated(Schema.NullOr(JsonDate)),
+  deletedAt: M.GeneratedByApp(Schema.NullOr(JsonDate)),
+}) {}
+```
+
+Note: The plain token is only returned on creation and regeneration. Only the hash is stored.
+
+## RPC Schema Reference
+
+### Create Webhook
+
+```typescript packages/domain/src/rpc/channel-webhooks.ts:76-87
+Rpc.make("channelWebhook.create", {
+  payload: Schema.Struct({
+    channelId: ChannelId,
+    name: Schema.String.pipe(Schema.minLength(1), Schema.maxLength(100)),
+    description: Schema.optional(Schema.String.pipe(Schema.maxLength(500))),
+    avatarUrl: Schema.optional(AvatarUrl),
+    integrationProvider: Schema.optional(
+      Schema.Literal("openstatus", "railway")
+    ),
+  }),
+  success: ChannelWebhookCreatedResponse,
+  error: Schema.Union(ChannelNotFoundError, UnauthorizedError, InternalServerError),
+}).middleware(AuthMiddleware)
+```
+
+### Update Webhook
+
+```typescript packages/domain/src/rpc/channel-webhooks.ts:115-125
+Rpc.make("channelWebhook.update", {
+  payload: Schema.Struct({
+    id: ChannelWebhookId,
+    name: Schema.optional(Schema.String.pipe(Schema.minLength(1), Schema.maxLength(100))),
+    description: Schema.optional(Schema.NullOr(Schema.String.pipe(Schema.maxLength(500)))),
+    avatarUrl: Schema.optional(Schema.NullOr(AvatarUrl)),
+    isEnabled: Schema.optional(Schema.Boolean),
+  }),
+  success: ChannelWebhookResponse,
+  error: Schema.Union(ChannelWebhookNotFoundError, UnauthorizedError, InternalServerError),
+}).middleware(AuthMiddleware)
+```
+
+## Common Use Cases
+
+### GitHub Actions Deployment
+
+```yaml .github/workflows/deploy.yml
+name: Deploy to Production
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy
+        run: ./deploy.sh
+      
+      - name: Notify Hazel
+        if: always()
+        run: |
+          STATUS="${{ job.status }}"
+          EMOJI="✅"
+          if [ "$STATUS" != "success" ]; then
+            EMOJI="❌"
+          fi
+          
+          curl -X POST ${{ secrets.HAZEL_WEBHOOK_URL }} \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"content\": \"Deployment $STATUS $EMOJI\\n\\n**Commit**: ${{ github.sha }}\\n**Author**: ${{ github.actor }}\"
+            }"
+```
+
+### Monitoring Alerts
+
+```typescript monitoring-alert.ts
+import { Effect, HttpClient } from "effect"
+
+const sendAlert = (webhookUrl: string, message: string) =>
+  Effect.gen(function* () {
+    const client = yield* HttpClient.HttpClient
+    
+    yield* client.post(webhookUrl, {
+      body: HttpClient.body.json({
+        content: message,
+      }),
+    })
+  })
+
+// Usage
+if (cpuUsage > 90) {
+  yield* sendAlert(
+    process.env.HAZEL_WEBHOOK_URL!,
+    "⚠️ High CPU usage detected: 92%"
+  )
+}
+```
+
+### Railway Deployments
+
+```bash
+# Configure in Railway project settings
+Webhook URL: https://api.hazel.sh/webhooks/{id}/{token}
+
+# Railway will POST deployment events:
+{
+  "content": "Railway deployment succeeded\n\n**Service**: api\n**Environment**: production\n**Commit**: abc1234"
+}
+```
+
+### Custom Application
+
+```typescript app.ts
+const notifyHazel = async (message: string) => {
+  const response = await fetch(process.env.HAZEL_WEBHOOK_URL!, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ content: message }),
+  })
+  
+  if (!response.ok) {
+    throw new Error(`Webhook failed: ${response.statusText}`)
+  }
+}
+
+// Usage
+await notifyHazel('New user signup: john@example.com')
+```
+
+## Error Handling
+
+### Common Errors
+
+| Error | Cause | Solution |
+|-------|-------|----------|
+| `ChannelWebhookNotFoundError` | Invalid webhook ID | Verify the webhook exists |
+| `ChannelNotFoundError` | Invalid channel ID | Verify the channel exists and you have access |
+| `UnauthorizedError` | User not authorized | Must be organization admin to manage webhooks |
+| `401 Unauthorized` (HTTP) | Invalid token | Regenerate webhook token |
+| `404 Not Found` (HTTP) | Webhook deleted or disabled | Create new webhook |
+
+### HTTP Response Codes
+
+Webhook POST requests return:
+
+- `200 OK` - Message posted successfully
+- `401 Unauthorized` - Invalid or expired token
+- `404 Not Found` - Webhook not found or disabled
+- `500 Internal Server Error` - Server error
+
+## Best Practices
+
+<Steps>
+  <Step title="Secure Token Storage">
+    Store webhook tokens securely:
+    
+    - Use environment variables or secrets managers
+    - Never commit tokens to version control
+    - Rotate tokens if compromised
+    
+    ```bash
+    # .env
+    HAZEL_WEBHOOK_URL=https://api.hazel.sh/webhooks/abc/xyz
+    ```
+  </Step>
+  
+  <Step title="Use Descriptive Names">
+    Name webhooks clearly to indicate their purpose:
+    
+    ```typescript
+    // Good
+    name: "Production Deployments"
+    name: "Error Monitoring Alerts"
+    name: "GitHub Release Notifications"
+    
+    // Bad
+    name: "Webhook 1"
+    name: "Bot"
+    ```
+  </Step>
+  
+  <Step title="Handle Errors Gracefully">
+    Always check webhook POST responses:
+    
+    ```typescript
+    const response = await fetch(webhookUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content: message }),
+    })
+    
+    if (!response.ok) {
+      console.error('Webhook failed:', response.status, response.statusText)
+      // Retry or fallback
+    }
+    ```
+  </Step>
+  
+  <Step title="Use Dedicated Channels">
+    Create separate channels for different webhook types:
+    
+    - `#deployments` - Deployment notifications
+    - `#alerts` - Monitoring alerts
+    - `#releases` - Release announcements
+  </Step>
+  
+  <Step title="Disable Instead of Delete">
+    Temporarily disable webhooks to preserve configuration:
+    
+    ```typescript
+    // Disable during maintenance
+    yield* rpc.channelWebhook.update({
+      id: webhookId,
+      isEnabled: false,
+    })
+    
+    // Re-enable later
+    yield* rpc.channelWebhook.update({
+      id: webhookId,
+      isEnabled: true,
+    })
+    ```
+  </Step>
+</Steps>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Build a Bot" icon="robot" href="/integrations/bots">
+    Create custom bots with the Hazel Bot SDK
+  </Card>
+  
+  <Card title="GitHub Integration" icon="github" href="/integrations/github">
+    Subscribe channels to GitHub repositories
+  </Card>
+</CardGroup>

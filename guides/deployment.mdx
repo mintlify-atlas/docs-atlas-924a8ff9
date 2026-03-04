@@ -1,0 +1,672 @@
+---
+title: Deployment
+description: Deploy Hazel Chat to production with Docker, PostgreSQL, and cloud services
+icon: rocket
+---
+
+This guide covers deploying Hazel Chat to production, including Docker configuration, service orchestration, and environment setup.
+
+## Architecture Overview
+
+Hazel Chat consists of multiple services that work together:
+
+```mermaid
+graph TD
+    A[Web Frontend] --> B[Backend API]
+    A --> C[Electric Proxy]
+    B --> D[PostgreSQL]
+    B --> E[Cluster Service]
+    B --> F[Redis]
+    B --> G[MinIO/R2]
+    C --> H[Electric SQL]
+    H --> D
+    E --> D
+```
+
+### Core Services
+
+| Service | Port | Description |
+|---------|------|-------------|
+| **Web** | 3000 | React frontend (Vite) |
+| **Backend** | 3003 | Effect-TS API server |
+| **Cluster** | 3020 | Distributed workflow service |
+| **Electric Proxy** | 8787 | Cloudflare Worker for real-time sync |
+| **PostgreSQL** | 5432 | Primary database |
+| **Electric** | 3333 | Electric SQL sync engine |
+| **Redis** | 6380 | Cache and rate limiting |
+| **MinIO** | 9000 | S3-compatible object storage |
+| **Caddy** | 5133, 3004 | Reverse proxy for SSE/WebSocket |
+
+## Docker Setup
+
+### Docker Compose Configuration
+
+The project includes a complete Docker Compose setup for development and production:
+
+<CodeGroup>
+```yaml docker-compose.yaml
+name: hazel
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:17-alpine
+    shm_size: 1g
+    restart: always
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_DB: app
+      POSTGRES_PASSWORD: password
+    command: |
+      postgres 
+      -c wal_level=logical
+      -c max_wal_senders=10 
+      -c max_replication_slots=5 
+      -c hot_standby=on 
+      -c hot_standby_feedback=on
+      -c max_connections=200
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./docker/postgres/init:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: "pg_isready -U user --dbname=app"
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Electric - Real-time sync for Postgres
+  electric:
+    image: electricsql/electric:canary
+    ports:
+      - "3333:3000"
+    environment:
+      DATABASE_URL: "postgresql://user:password@postgres:5432/app?sslmode=disable"
+      ELECTRIC_INSECURE: "true"  # Only for development
+      ELECTRIC_FEATURE_FLAGS: "allow_subqueries,tagged_subqueries"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: always
+
+  # Redis for caching
+  cache_redis:
+    image: redis:7
+    ports:
+      - "6380:6379"
+    command: ["redis-server", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru"]
+    volumes:
+      - cache_redis_data:/data
+    restart: always
+
+  # MinIO - S3-compatible object storage
+  minio:
+    image: minio/minio:latest
+    ports:
+      - "9000:9000"  # S3 API
+      - "9001:9001"  # Console UI
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    command: server /data --console-address ":9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: always
+
+  # Caddy - Reverse proxy
+  caddy:
+    image: caddy:2-alpine
+    ports:
+      - "5133:5133"  # SSE proxy
+      - "3004:3004"  # WebSocket proxy
+    volumes:
+      - ./Caddyfile.docker:/etc/caddy/Caddyfile
+      - ./certs:/etc/caddy/certs:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: always
+
+volumes:
+  postgres_data:
+  cache_redis_data:
+  minio_data:
+  caddy_data:
+  caddy_config:
+```
+
+```dockerfile Caddyfile.docker
+https://localhost:5133 {
+  tls /etc/caddy/certs/localhost.pem /etc/caddy/certs/localhost-key.pem
+
+  reverse_proxy host.docker.internal:8184 {
+    # SSE: disable internal buffering for immediate events
+    flush_interval -1
+  }
+
+  encode gzip
+
+  header {
+    Cache-Control "no-cache, no-transform"
+    X-Accel-Buffering "no"
+  }
+}
+
+https://localhost:3004 {
+  tls /etc/caddy/certs/localhost.pem /etc/caddy/certs/localhost-key.pem
+
+  reverse_proxy host.docker.internal:3003 {
+    # WebSocket: disable buffering
+    flush_interval -1
+  }
+}
+```
+</CodeGroup>
+
+### Starting Services
+
+<Steps>
+  <Step title="Start infrastructure services">
+    Start PostgreSQL, Redis, Electric, and MinIO:
+
+    ```bash
+    docker compose up -d
+    ```
+  </Step>
+
+  <Step title="Wait for health checks">
+    Wait for all services to become healthy:
+
+    ```bash
+    docker compose ps
+    ```
+
+    All services should show `healthy` or `running` status.
+  </Step>
+
+  <Step title="Initialize the database">
+    Run migrations to set up the database schema:
+
+    ```bash
+    cd packages/db
+    bun run db:push
+    ```
+  </Step>
+
+  <Step title="Start application services">
+    Start the backend, cluster, and web services:
+
+    ```bash
+    bun run dev
+    ```
+  </Step>
+</Steps>
+
+## PostgreSQL Configuration
+
+### Production Database Settings
+
+For production, configure PostgreSQL with:
+
+```bash
+# WAL configuration for Electric SQL replication
+wal_level=logical
+max_wal_senders=10
+max_replication_slots=5
+
+# Performance tuning
+shared_buffers=256MB
+effective_cache_size=1GB
+max_connections=200
+
+# Monitoring
+log_statement=all  # Only for debugging, disable in production
+```
+
+<Warning>
+  **Electric SQL requires logical replication**. Ensure `wal_level=logical` is set before running migrations.
+</Warning>
+
+### Connection Pooling
+
+For production deployments, use connection pooling:
+
+```bash
+# Use PgBouncer or similar
+DATABASE_URL=postgresql://user:password@pgbouncer:6432/app?sslmode=verify-full
+```
+
+## Environment Configuration
+
+### Production Environment Variables
+
+Create production `.env` files for each service:
+
+<CodeGroup>
+```bash apps/backend/.env
+# Database
+DATABASE_URL=postgresql://user:password@postgres.example.com:5432/hazel?sslmode=verify-full
+
+# Cluster
+CLUSTER_URL=https://cluster.example.com
+
+# WorkOS Authentication
+WORKOS_API_KEY=sk_live_your_api_key
+WORKOS_CLIENT_ID=client_your_client_id
+WORKOS_REDIRECT_URI=https://api.example.com/auth/callback
+WORKOS_COOKIE_DOMAIN=example.com
+WORKOS_WEBHOOK_SECRET=your_webhook_secret
+
+# S3 Storage (Cloudflare R2)
+S3_BUCKET=hazel-production
+S3_ENDPOINT=https://your-account-id.r2.cloudflarestorage.com
+S3_ACCESS_KEY_ID=your_access_key
+S3_SECRET_ACCESS_KEY=your_secret_key
+
+# Electric SQL
+ELECTRIC_URL=https://electric.example.com
+
+# Redis
+REDIS_URL=redis://redis.example.com:6379
+
+# URLs
+API_BASE_URL=https://api.example.com
+FRONTEND_URL=https://app.example.com
+```
+
+```bash apps/web/.env
+# Backend API
+VITE_BACKEND_URL=https://api.example.com
+
+# Cluster Service
+VITE_CLUSTER_URL=https://cluster.example.com
+
+# WorkOS
+VITE_WORKOS_CLIENT_ID=client_your_client_id
+VITE_WORKOS_REDIRECT_URI=https://app.example.com/auth/callback
+
+# Electric SQL Proxy
+VITE_ELECTRIC_URL=https://electric-proxy.example.com/v1/shape
+
+# Cloudflare R2 Public URL
+VITE_R2_PUBLIC_URL=https://cdn.example.com
+```
+
+```bash apps/cluster/.env
+# Database
+DATABASE_URL=postgresql://user:password@postgres.example.com:5432/hazel?sslmode=verify-full
+
+# Effect Cluster Database (separate for isolation)
+EFFECT_DATABASE_URL=postgresql://user:password@postgres.example.com:5432/cluster?sslmode=verify-full
+```
+</CodeGroup>
+
+<Info>
+  See [Environment Variables](/guides/environment-variables) for a complete reference of all configuration options.
+</Info>
+
+## Service Orchestration
+
+### Build Commands
+
+Build all services for production:
+
+```bash
+# Build all apps and packages
+bun run build
+
+# Build specific app
+cd apps/backend
+bun run build
+```
+
+### Start Commands
+
+<CodeGroup>
+```bash Backend
+cd apps/backend
+bun run start
+# Runs on port 3003
+```
+
+```bash Cluster
+cd apps/cluster
+bun run start
+# Runs on port 3020
+```
+
+```bash Web
+cd apps/web
+bun run build
+bun run preview
+# Or serve the dist/ folder with nginx/cloudflare pages
+```
+</CodeGroup>
+
+### Process Management
+
+Use PM2 or systemd to manage application processes:
+
+<CodeGroup>
+```json pm2 ecosystem.config.json
+{
+  "apps": [
+    {
+      "name": "hazel-backend",
+      "cwd": "./apps/backend",
+      "script": "bun",
+      "args": "run start",
+      "env": {
+        "NODE_ENV": "production"
+      }
+    },
+    {
+      "name": "hazel-cluster",
+      "cwd": "./apps/cluster",
+      "script": "bun",
+      "args": "run start",
+      "env": {
+        "NODE_ENV": "production"
+      }
+    }
+  ]
+}
+```
+
+```bash systemd
+# Start services
+pm2 start ecosystem.config.json
+
+# Monitor
+pm2 monit
+
+# Logs
+pm2 logs hazel-backend
+```
+</CodeGroup>
+
+## Cloud Deployment Options
+
+### Vercel (Frontend)
+
+Deploy the web app to Vercel:
+
+```bash
+cd apps/web
+vercel deploy --prod
+```
+
+Configure environment variables in the Vercel dashboard.
+
+### Railway (Backend + Database)
+
+Deploy backend services to Railway:
+
+<Steps>
+  <Step title="Create Railway project">
+    ```bash
+    railway init
+    ```
+  </Step>
+
+  <Step title="Add PostgreSQL">
+    Add a PostgreSQL database from the Railway dashboard.
+  </Step>
+
+  <Step title="Configure services">
+    Create services for backend and cluster in `railway.toml`.
+  </Step>
+
+  <Step title="Deploy">
+    ```bash
+    railway up
+    ```
+  </Step>
+</Steps>
+
+### Cloudflare (Electric Proxy + R2)
+
+<CodeGroup>
+```bash Electric Proxy
+cd apps/electric-proxy
+wrangler deploy
+```
+
+```bash R2 Storage
+# Create R2 bucket
+wrangler r2 bucket create hazel-production
+
+# Configure CORS
+wrangler r2 bucket cors put hazel-production --rules '[{"AllowedOrigins": ["https://app.example.com"], "AllowedMethods": ["GET", "PUT"], "AllowedHeaders": ["*"]}]'
+```
+</CodeGroup>
+
+### Fly.io (All Services)
+
+Deploy all services to Fly.io with flyctl:
+
+```bash
+# Initialize
+fly launch
+
+# Deploy
+fly deploy
+
+# Scale
+fly scale count 2
+```
+
+## Monitoring and Observability
+
+### OpenTelemetry
+
+The backend includes OpenTelemetry instrumentation:
+
+```bash title="apps/backend/.env"
+OTLP_ENDPOINT=http://localhost:4318/v1/traces
+```
+
+Export traces to:
+- **Honeycomb**
+- **Datadog**
+- **Grafana Tempo**
+- **Jaeger**
+
+### Health Checks
+
+Each service exposes health endpoints:
+
+```bash
+# Backend health
+curl http://localhost:3003/health
+
+# Cluster health
+curl http://localhost:3020/health
+
+# PostgreSQL
+pg_isready -U user --dbname=app
+```
+
+### Logging
+
+Logs are written to stdout/stderr. Use a log aggregation service:
+
+```bash
+# View logs with Docker
+docker compose logs -f backend
+
+# View logs with PM2
+pm2 logs hazel-backend
+```
+
+## Security Checklist
+
+<Steps>
+  <Step title="Enable SSL/TLS">
+    Use HTTPS for all services in production:
+
+    ```bash
+    DATABASE_URL=postgresql://...?sslmode=verify-full
+    ```
+  </Step>
+
+  <Step title="Rotate secrets">
+    Never commit secrets to git. Use environment variables or secret management:
+
+    - WorkOS API keys
+    - Database passwords
+    - S3 access keys
+  </Step>
+
+  <Step title="Configure CORS">
+    Restrict CORS to your frontend domain:
+
+    ```typescript
+    const ALLOWED_ORIGINS = ['https://app.example.com']
+    ```
+  </Step>
+
+  <Step title="Enable rate limiting">
+    Redis-based rate limiting is included by default.
+  </Step>
+
+  <Step title="Set secure cookies">
+    ```bash
+    WORKOS_COOKIE_DOMAIN=example.com
+    ```
+  </Step>
+
+  <Step title="Disable Electric insecure mode">
+    ```bash
+    # Remove this in production
+    # ELECTRIC_INSECURE="true"
+    ```
+  </Step>
+</Steps>
+
+<Warning>
+  **Never use `ELECTRIC_INSECURE=true` in production**. Configure proper authentication for Electric SQL. See [Electric SQL Security Guide](https://electric-sql.com/docs/guides/security).
+</Warning>
+
+## Backup and Recovery
+
+### Database Backups
+
+Schedule regular PostgreSQL backups:
+
+```bash
+# Automated backup script
+pg_dump -U user -d hazel -f backup-$(date +%Y%m%d).sql
+
+# Compress and upload to S3
+gzip backup-$(date +%Y%m%d).sql
+aws s3 cp backup-$(date +%Y%m%d).sql.gz s3://backups/
+```
+
+### Restore from Backup
+
+```bash
+# Download backup
+aws s3 cp s3://backups/backup-20260304.sql.gz .
+
+# Restore
+gunzip backup-20260304.sql.gz
+psql -U user -d hazel < backup-20260304.sql
+```
+
+## Performance Optimization
+
+### Database Indexing
+
+Ensure proper indexes are created during migrations:
+
+```sql
+CREATE INDEX idx_messages_channel_id ON messages(channel_id);
+CREATE INDEX idx_channel_members_user_id ON channel_members(user_id);
+```
+
+### Caching Strategy
+
+Redis is used for:
+- Rate limiting
+- Session caching
+- Electric proxy caching
+
+```bash
+# Configure Redis memory policy
+redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
+```
+
+### CDN for Static Assets
+
+Use Cloudflare or a CDN for:
+- Frontend static files
+- R2 public assets
+- Avatar images
+
+## Troubleshooting
+
+### Common Issues
+
+<AccordionGroup>
+  <Accordion title="Database connection errors">
+    Check PostgreSQL is running and accessible:
+
+    ```bash
+    pg_isready -h postgres.example.com -U user
+    ```
+
+    Verify connection string format:
+    ```bash
+    postgresql://user:password@host:5432/database?sslmode=verify-full
+    ```
+  </Accordion>
+
+  <Accordion title="Electric sync not working">
+    Verify Electric is connected to PostgreSQL:
+
+    ```bash
+    curl http://localhost:3333/health
+    ```
+
+    Check WAL level:
+    ```sql
+    SHOW wal_level;  -- Should be 'logical'
+    ```
+  </Accordion>
+
+  <Accordion title="WorkOS authentication fails">
+    Verify redirect URIs match in WorkOS dashboard:
+    ```bash
+    WORKOS_REDIRECT_URI=https://api.example.com/auth/callback
+    ```
+
+    Check API key is correct:
+    ```bash
+    echo $WORKOS_API_KEY  # Should start with sk_live_
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Environment Variables" icon="terminal" href="/guides/environment-variables">
+    Complete environment variable reference
+  </Card>
+  <Card title="Database Setup" icon="database" href="/guides/database-setup">
+    Database schema and migrations
+  </Card>
+  <Card title="WorkOS Configuration" icon="wrench" href="/guides/workos-configuration">
+    Authentication setup
+  </Card>
+  <Card title="Architecture" icon="sitemap" href="/architecture/overview">
+    System architecture deep dive
+  </Card>
+</CardGroup>

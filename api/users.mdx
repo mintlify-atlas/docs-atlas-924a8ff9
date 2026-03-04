@@ -1,0 +1,355 @@
+---
+title: Users API
+description: Manage user accounts, profiles, and onboarding
+---
+
+The Users API provides methods for managing user accounts, profiles, and onboarding status in Hazel Chat. All methods require authentication.
+
+## Authentication
+
+All Users API methods require authentication via the `AuthMiddleware`. Include a valid bearer token in your requests.
+
+## Methods
+
+### Get Current User
+
+Retrieve information about the currently authenticated user.
+
+```typescript
+const client = yield* RpcClient
+const currentUser = yield* client["user.me"]()
+```
+
+<ParamField path="payload" type="void">
+  No parameters required
+</ParamField>
+
+<ResponseField name="id" type="UserId" required>
+  Unique identifier for the user
+</ResponseField>
+
+<ResponseField name="organizationId" type="OrganizationId | null">
+  ID of the user's current organization (nullable)
+</ResponseField>
+
+<ResponseField name="role" type="'admin' | 'member' | 'owner'" required>
+  User's role in the organization
+</ResponseField>
+
+<ResponseField name="email" type="string" required>
+  User's email address
+</ResponseField>
+
+<ResponseField name="firstName" type="string">
+  User's first name
+</ResponseField>
+
+<ResponseField name="lastName" type="string">
+  User's last name
+</ResponseField>
+
+<ResponseField name="avatarUrl" type="string">
+  URL to the user's avatar image
+</ResponseField>
+
+<ResponseField name="isOnboarded" type="boolean" required>
+  Whether the user has completed onboarding
+</ResponseField>
+
+<ResponseField name="timezone" type="string | null">
+  User's timezone (IANA timezone identifier)
+</ResponseField>
+
+<ResponseField name="settings" type="UserSettings | null">
+  User's settings object
+  
+  <Expandable title="UserSettings properties">
+    <ResponseField name="doNotDisturb" type="boolean">
+      Do Not Disturb mode enabled
+    </ResponseField>
+    
+    <ResponseField name="quietHoursStart" type="string">
+      Quiet hours start time in HH:MM format (00:00 - 23:59)
+    </ResponseField>
+    
+    <ResponseField name="quietHoursEnd" type="string">
+      Quiet hours end time in HH:MM format (00:00 - 23:59)
+    </ResponseField>
+    
+    <ResponseField name="showQuietHoursInStatus" type="boolean">
+      Show quiet hours indicator in status
+    </ResponseField>
+    
+    <ResponseField name="theme" type="UserThemeSettings">
+      User's theme preferences
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+**Errors:**
+- `UnauthorizedError` - User is not authenticated
+- `InternalServerError` - Unexpected server error
+
+---
+
+### Update User
+
+Update an existing user's profile information. Only users with appropriate permissions can update user data.
+
+```typescript
+const client = yield* RpcClient
+
+const result = yield* client["user.update"]({
+  id: "usr_123",
+  firstName: "Jane",
+  lastName: "Doe",
+  avatarUrl: "https://example.com/avatar.jpg"
+})
+```
+
+<ParamField path="id" type="UserId" required>
+  ID of the user to update
+</ParamField>
+
+<ParamField path="firstName" type="string">
+  Updated first name
+</ParamField>
+
+<ParamField path="lastName" type="string">
+  Updated last name
+</ParamField>
+
+<ParamField path="avatarUrl" type="string | null">
+  Updated avatar URL (set to null to clear)
+</ParamField>
+
+<ParamField path="email" type="string">
+  Updated email address
+</ParamField>
+
+<ParamField path="timezone" type="string | null">
+  Updated timezone (IANA timezone identifier)
+</ParamField>
+
+<ParamField path="settings" type="UserSettings | null">
+  Updated user settings
+</ParamField>
+
+<ResponseField name="data" type="User" required>
+  The updated user object
+  
+  <Expandable title="User properties">
+    <ResponseField name="id" type="UserId" required>
+      User's unique identifier
+    </ResponseField>
+    
+    <ResponseField name="externalId" type="string" required>
+      User's external ID (from WorkOS)
+    </ResponseField>
+    
+    <ResponseField name="email" type="string" required>
+      User's email address
+    </ResponseField>
+    
+    <ResponseField name="firstName" type="string" required>
+      User's first name
+    </ResponseField>
+    
+    <ResponseField name="lastName" type="string" required>
+      User's last name
+    </ResponseField>
+    
+    <ResponseField name="avatarUrl" type="string | null">
+      URL to avatar image
+    </ResponseField>
+    
+    <ResponseField name="userType" type="'user' | 'machine'" required>
+      Type of user account
+    </ResponseField>
+    
+    <ResponseField name="isOnboarded" type="boolean" required>
+      Onboarding completion status
+    </ResponseField>
+    
+    <ResponseField name="timezone" type="string | null">
+      User's timezone
+    </ResponseField>
+    
+    <ResponseField name="settings" type="UserSettings | null">
+      User's settings
+    </ResponseField>
+    
+    <ResponseField name="createdAt" type="Date" required>
+      Timestamp when user was created
+    </ResponseField>
+    
+    <ResponseField name="updatedAt" type="Date" required>
+      Timestamp when user was last updated
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="transactionId" type="TransactionId" required>
+  Transaction ID for optimistic updates
+</ResponseField>
+
+**Errors:**
+- `UserNotFoundError` - User with the specified ID doesn't exist
+- `UnauthorizedError` - User lacks permission to update this user
+- `InternalServerError` - Unexpected server error (including WorkOS sync failures)
+
+**Implementation Notes:**
+- Updates are synchronized with WorkOS user management
+- Changes are performed within a database transaction
+- Policy checks ensure users can only update authorized accounts
+
+---
+
+### Delete User
+
+Delete a user account (soft delete). Only users with appropriate permissions can delete users.
+
+```typescript
+const client = yield* RpcClient
+
+const result = yield* client["user.delete"]({
+  id: "usr_123"
+})
+```
+
+<ParamField path="id" type="UserId" required>
+  ID of the user to delete
+</ParamField>
+
+<ResponseField name="transactionId" type="TransactionId" required>
+  Transaction ID for optimistic updates
+</ResponseField>
+
+**Errors:**
+- `UserNotFoundError` - User with the specified ID doesn't exist
+- `UnauthorizedError` - User lacks permission to delete this user
+- `InternalServerError` - Unexpected server error (including WorkOS sync failures)
+
+**Implementation Notes:**
+- Deletion is synchronized with WorkOS user management
+- Changes are performed within a database transaction
+- Policy checks ensure proper authorization
+
+---
+
+### Finalize Onboarding
+
+Mark the current authenticated user as having completed onboarding. This sets the `isOnboarded` flag to true.
+
+```typescript
+const client = yield* RpcClient
+
+const result = yield* client["user.finalizeOnboarding"]()
+```
+
+<ParamField path="payload" type="void">
+  No parameters required
+</ParamField>
+
+<ResponseField name="data" type="User" required>
+  The updated user object with isOnboarded set to true
+</ResponseField>
+
+<ResponseField name="transactionId" type="TransactionId" required>
+  Transaction ID for optimistic updates
+</ResponseField>
+
+**Errors:**
+- `UnauthorizedError` - User is not authenticated
+- `InternalServerError` - Unexpected server error
+
+**Implementation Notes:**
+- Updates the current authenticated user only
+- Performed within a database transaction
+- No additional permissions required beyond authentication
+
+---
+
+### Reset Avatar
+
+Reset the current user's avatar to their original WorkOS profile picture (e.g., Google/GitHub OAuth avatar). Clears the avatar if WorkOS doesn't have a profile picture.
+
+```typescript
+const client = yield* RpcClient
+
+const result = yield* client["user.resetAvatar"]()
+```
+
+<ParamField path="payload" type="void">
+  No parameters required
+</ParamField>
+
+<ResponseField name="data" type="User" required>
+  The updated user object with the reset avatar
+</ResponseField>
+
+<ResponseField name="transactionId" type="TransactionId" required>
+  Transaction ID for optimistic updates
+</ResponseField>
+
+**Errors:**
+- `UnauthorizedError` - User is not authenticated
+- `InternalServerError` - Unexpected server error (including WorkOS fetch failures)
+
+**Implementation Notes:**
+- Fetches the user's profile picture from WorkOS
+- If WorkOS has a profile picture URL, it's set as the avatar
+- If no profile picture is available, the avatar is set to null
+- Performed within a database transaction
+
+## Error Handling
+
+<CodeGroup>
+```typescript Effect
+import { Effect } from "effect"
+import { RpcClient } from "@hazel/domain/rpc"
+import { UserNotFoundError } from "@hazel/domain/rpc"
+
+const updateUserEffect = Effect.gen(function* () {
+  const client = yield* RpcClient
+  
+  const result = yield* client["user.update"]({
+    id: "usr_123",
+    firstName: "Jane"
+  }).pipe(
+    Effect.catchTag("UserNotFoundError", (error) =>
+      Effect.fail(new Error(`User ${error.userId} not found`))
+    ),
+    Effect.catchTag("UnauthorizedError", () =>
+      Effect.fail(new Error("Not authorized to update this user"))
+    )
+  )
+  
+  return result
+})
+```
+
+```typescript Try/Catch Pattern
+try {
+  const client = yield* RpcClient
+  
+  const result = yield* client["user.update"]({
+    id: "usr_123",
+    firstName: "Jane"
+  })
+  
+  console.log("User updated:", result.data)
+} catch (error) {
+  if (error instanceof UserNotFoundError) {
+    console.error("User not found:", error.userId)
+  } else if (error instanceof UnauthorizedError) {
+    console.error("Unauthorized")
+  }
+}
+```
+</CodeGroup>
+
+## Related APIs
+
+- [User Presence Status API](/api/user-presence-status) - Manage user presence and status
+- [Notifications API](/api/notifications) - Manage user notifications

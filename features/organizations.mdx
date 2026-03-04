@@ -1,0 +1,315 @@
+---
+title: Organizations
+description: Create workspaces with team management, roles, and domain-based access control
+icon: building
+---
+
+Organizations are the top-level structure in Hazel Chat. Each organization is a separate workspace with its own members, channels, and settings.
+
+## Overview
+
+Organizations provide:
+
+- Isolated workspaces for teams and companies
+- Role-based access control (Owner, Admin, Member)
+- Domain verification for automatic member access
+- SSO integration via WorkOS
+- Public invite links for easy onboarding
+- Custom branding and settings
+
+<CardGroup cols={2}>
+  <Card title="Multi-Tenant" icon="users">
+    Each organization is completely isolated with its own data and members
+  </Card>
+  <Card title="Role-Based Access" icon="shield">
+    Three role levels with granular permissions for organization management
+  </Card>
+  <Card title="Domain Verification" icon="check-circle">
+    Verify domains to control who can join your organization
+  </Card>
+  <Card title="WorkOS Integration" icon="key">
+    Enterprise authentication with SSO, SCIM, and audit logs
+  </Card>
+</CardGroup>
+
+## Creating an Organization
+
+Create a new workspace:
+
+1. Click your avatar in the sidebar
+2. Select **Create Organization**
+3. Enter organization details:
+   - **Name** - Display name (e.g., "Acme Corp")
+   - **Slug** - URL-friendly identifier (e.g., "acme")
+   - **Logo** - Optional organization avatar
+4. Click **Create**
+
+You're automatically assigned the **Owner** role.
+
+<Info>
+  Organization slugs must be unique across the platform and can only contain lowercase letters, numbers, and hyphens.
+</Info>
+
+## Organization Settings
+
+Access organization settings by clicking the organization name in the sidebar:
+
+### General Settings
+
+**Organization Details:**
+- Edit organization name
+- Change organization slug
+- Upload/change logo
+- Configure workspace settings
+
+**Danger Zone:**
+- Delete organization (Owner only)
+- Requires confirmation and affects all members
+
+### Public Invites
+
+Enable anyone with the link to join:
+
+1. Go to **Organization Settings** → **Public Access**
+2. Toggle **Enable Public Invites**
+3. Share your organization's invite URL: `https://app.hazelchat.com/join/{slug}`
+
+When enabled:
+- Anyone with the link can join as a Member
+- New members gain access to all public channels
+- Public organization info is visible on the join page
+
+<Warning>
+  Public invites allow anyone with the link to join. Only enable this for open communities or teams with controlled links.
+</Warning>
+
+### Domain Verification
+
+Verify email domains to control access:
+
+1. Go to **Organization Settings** → **Domains**
+2. Click **Add Domain**
+3. Enter your domain (e.g., "example.com")
+4. Add the verification token to your DNS records:
+   ```
+   TXT record: _workos-verification.example.com
+   Value: {verification-token}
+   ```
+5. Click **Verify** once DNS is updated
+
+**Verified Domain Benefits:**
+- Auto-join for users with verified email addresses
+- SSO enforcement for domain users
+- Enhanced security and trust
+
+<Note>
+  Domain verification requires DNS access. States include: pending, verified, failed, and legacy_verified.
+</Note>
+
+### SSO Configuration
+
+Configure Single Sign-On via WorkOS:
+
+1. Go to **Organization Settings** → **Authentication**
+2. Click **Configure SSO**
+3. Opens WorkOS Admin Portal with SSO setup
+4. Configure your identity provider (Okta, Azure AD, Google Workspace, etc.)
+5. Test SSO login flow
+
+Supported identity providers:
+- Okta
+- Azure AD / Microsoft Entra
+- Google Workspace
+- OneLogin
+- JumpCloud
+- And more
+
+### Directory Sync (SCIM)
+
+Automate user provisioning:
+
+1. Go to **Organization Settings** → **Directory Sync**
+2. Click **Configure Directory Sync**
+3. Opens WorkOS Admin Portal
+4. Set up SCIM integration with your IDP
+5. Users and groups sync automatically
+
+Directory sync enables:
+- Automatic user provisioning/deprovisioning
+- Group-based access control
+- Real-time user updates
+- Centralized identity management
+
+## Member Management
+
+### Organization Roles
+
+Three role levels with different permissions:
+
+| Role | Permissions |
+|------|-------------|
+| **Owner** | Full access including organization deletion, billing, and member management |
+| **Admin** | Manage members, channels, settings, and integrations. Cannot delete organization |
+| **Member** | Standard access to channels and conversations. Limited administrative capabilities |
+
+<Info>
+  Roles must be configured in WorkOS before using them. See [WorkOS Configuration](/guides/workos-configuration) for setup instructions.
+</Info>
+
+### Inviting Members
+
+Add users to your organization:
+
+**Via Email Invitation:**
+1. Click **Invite Members** in organization settings
+2. Enter email addresses
+3. Select initial role (Admin or Member)
+4. Send invitations
+5. Recipients receive email with join link
+
+**Via Public Link:**
+- Share the public invite URL if enabled
+- New users join as Members by default
+
+**Via Domain Verification:**
+- Users with verified email domains auto-join
+- No invitation required
+
+### Managing Members
+
+View and manage organization members:
+
+1. Go to **Organization Settings** → **Members**
+2. See all members with their roles and status
+3. Update member roles (Admin/Member)
+4. Remove members from the organization
+5. View member activity and metadata
+
+**Member Actions:**
+- **Change Role** - Promote/demote between Admin and Member
+- **Remove Member** - Removes from organization and all channels
+- **View Profile** - See member details and activity
+
+<Warning>
+  Removing a member deletes all their organization membership data. This action cannot be undone.
+</Warning>
+
+### Member Metadata
+
+Store additional member information:
+
+```json
+{
+  "role": "Engineering Manager",
+  "useCases": ["team-communication", "project-management"]
+}
+```
+
+Metadata is collected during onboarding and can be updated via API.
+
+## Organization Navigation
+
+Switch between organizations:
+
+1. Click the organization name in the sidebar
+2. Select from your organization list
+3. Or press **Cmd/Ctrl+K** and type the organization name
+
+Each organization has completely isolated data:
+- Separate channels and messages
+- Independent member lists
+- Unique settings and integrations
+
+## Audit Logs
+
+Track organization activity:
+
+1. Go to **Organization Settings** → **Audit Logs**
+2. Opens WorkOS Admin Portal
+3. View all organization events:
+   - Member additions/removals
+   - Role changes
+   - Settings updates
+   - Authentication events
+
+Audit logs are available for enterprise WorkOS plans.
+
+## Log Streams
+
+Stream audit logs to external services:
+
+1. Go to **Organization Settings** → **Log Streams**
+2. Opens WorkOS Admin Portal
+3. Configure streaming to:
+   - AWS S3
+   - Datadog
+   - Splunk
+   - Custom webhooks
+
+## Public Organization Info
+
+Public organizations expose limited information:
+
+```json
+{
+  "id": "org_123",
+  "name": "Acme Corp",
+  "slug": "acme",
+  "logoUrl": "https://...",
+  "memberCount": 42
+}
+```
+
+This info appears on the public join page when `isPublic` is enabled.
+
+## Technical Details
+
+### Data Model
+
+Organizations include:
+
+- `id` - Unique organization identifier
+- `name` - Display name
+- `slug` - URL-friendly unique identifier
+- `logoUrl` - Optional logo/avatar URL
+- `settings` - JSON configuration object
+- `isPublic` - Public invite mode enabled
+- `createdAt` - Creation timestamp
+- `updatedAt` - Last modification
+- `deletedAt` - Soft delete timestamp
+
+### Member Data Model
+
+Organization membership tracks:
+
+- `id` - Membership record ID
+- `organizationId` - Parent organization
+- `userId` - Member user ID
+- `role` - Member role (owner/admin/member)
+- `nickname` - Optional display name override
+- `joinedAt` - Membership timestamp
+- `invitedBy` - User who invited this member
+- `metadata` - Additional member data
+
+### Permissions
+
+**Organization Operations:**
+- **Create** - Any authenticated user
+- **Update** - Owner or Admin
+- **Delete** - Owner only
+- **View Settings** - All members
+- **Manage Members** - Owner or Admin
+- **Configure SSO/SCIM** - Owner or Admin
+
+### WorkOS Integration
+
+All enterprise features are powered by [WorkOS](https://workos.com):
+
+- AuthKit for authentication
+- Organizations API for workspace management
+- SSO for enterprise login
+- Directory Sync for user provisioning
+- Audit Logs for compliance
+- Admin Portal for configuration
+
+See [WorkOS Configuration](/guides/workos-configuration) for setup details.

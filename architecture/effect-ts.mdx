@@ -1,0 +1,540 @@
+---
+title: Effect-TS Patterns
+description: Effect-TS usage patterns for functional programming in Hazel Chat backend
+icon: wand-magic-sparkles
+---
+
+## Overview
+
+Hazel Chat uses **Effect-TS** extensively throughout the backend and cluster services. Effect-TS is a functional programming framework for TypeScript that provides:
+
+- **Type-safe error handling** with typed errors
+- **Dependency injection** via layers and services
+- **Resource management** with automatic cleanup
+- **Composable effects** that can be combined and transformed
+- **Concurrency primitives** like fibers and queues
+
+<Info>
+Effect-TS brings the power of functional programming to TypeScript without sacrificing type safety or developer experience.
+</Info>
+
+## Core Concepts
+
+### Effect Type
+
+The `Effect` type represents a computation that:
+- Produces a value of type `A` (success)
+- May fail with an error of type `E`
+- Requires dependencies of type `R`
+
+```typescript
+import { Effect } from "effect"
+
+//        ┌─── Success type (User)
+//        │        ┌─── Error types
+//        │        │                            ┌─── Dependencies
+//        │        │                            │
+//        ▼        ▼                            ▼
+Effect<User, UserNotFoundError | DatabaseError, Database>
+```
+
+### Effect.gen - Generator Syntax
+
+Effect uses generator syntax (`function*`) for sequential async operations:
+
+```typescript
+import { Effect } from "effect"
+import { UserRepo } from "@hazel/backend-core"
+
+const getUser = (userId: UserId) =>
+  Effect.gen(function* () {
+    // yield* unwraps Effect values
+    const user = yield* UserRepo.findById(userId)
+    
+    if (Option.isNone(user)) {
+      return yield* Effect.fail(new UserNotFoundError({ userId }))
+    }
+    
+    return user.value
+  })
+```
+
+## Service Pattern
+
+### Defining Services with Effect.Service
+
+**Always use `Effect.Service`** instead of `Context.Tag` for services:
+
+```typescript
+import { Effect } from "effect"
+import { Database } from "@hazel/db"
+
+// ✅ CORRECT - Use Effect.Service
+export class UserService extends Effect.Service<UserService>()("UserService", {
+  accessors: true,
+  dependencies: [Database.Default],
+  effect: Effect.gen(function* () {
+    const db = yield* Database
+    
+    return {
+      getUser: (userId: UserId) =>
+        Effect.gen(function* () {
+          const user = yield* db.execute((client) =>
+            client
+              .select()
+              .from(schema.usersTable)
+              .where(eq(schema.usersTable.id, userId))
+          )
+          return user[0]
+        }),
+      
+      createUser: (data: UserInsert) =>
+        Effect.gen(function* () {
+          const result = yield* db.execute((client) =>
+            client.insert(schema.usersTable).values(data).returning()
+          )
+          return result[0]
+        }),
+    }
+  }),
+}) {}
+```
+
+**Key features:**
+- `accessors: true` - Auto-generates accessor methods
+- `dependencies` - Declares required services
+- `effect` - Implementation with dependency access
+
+### Using Services
+
+```typescript
+import { Effect } from "effect"
+import { UserService } from "./user-service"
+
+const program = Effect.gen(function* () {
+  // Access service via yield*
+  const userService = yield* UserService
+  
+  // Call service methods
+  const user = yield* userService.getUser(userId)
+  
+  return user
+})
+```
+
+<Note>
+The `accessors: true` option generates static methods, allowing you to use `yield* UserService` instead of `yield* Effect.serviceConstants(UserService)`.
+</Note>
+
+## Dependency Injection with Layers
+
+### Creating Layers
+
+Layers provide implementations for services:
+
+```typescript
+import { Layer, Effect, Config } from "effect"
+import { Database } from "@hazel/db"
+
+// Database layer from environment config
+export const DatabaseLive = Layer.unwrapEffect(
+  Effect.gen(function* () {
+    const dbUrl = yield* Config.redacted("DATABASE_URL")
+    
+    return Database.layer({
+      url: dbUrl,
+      ssl: true,
+    })
+  }),
+)
+```
+
+### Layer Composition
+
+Combine multiple layers with `Layer.mergeAll`:
+
+```typescript
+import { Layer } from "effect"
+import { UserRepo, MessageRepo, ChannelRepo } from "@hazel/backend-core"
+import { DatabaseLive } from "./database"
+
+// Merge all repository layers
+const RepoLive = Layer.mergeAll(
+  UserRepo.Default,
+  MessageRepo.Default,
+  ChannelRepo.Default,
+)
+
+// Main application layer
+const MainLive = Layer.mergeAll(
+  RepoLive,
+  DatabaseLive,
+)
+```
+
+### Providing Layers
+
+Provide layers to effects that need them:
+
+```typescript
+import { Effect, Layer } from "effect"
+
+const program = Effect.gen(function* () {
+  const userRepo = yield* UserRepo
+  const user = yield* userRepo.findById(userId)
+  return user
+})
+
+// Provide dependencies
+const runnable = program.pipe(Layer.provide(MainLive))
+
+// Execute the effect
+Effect.runPromise(runnable)
+```
+
+<CardGroup cols={2}>
+  <Card title="Layer Benefits" icon="layer-group">
+    Layers enable dependency injection, making code testable and modular.
+  </Card>
+  <Card title="Automatic Wiring" icon="plug">
+    Effect automatically resolves dependencies in the layer graph.
+  </Card>
+</CardGroup>
+
+## Error Handling
+
+### Defining Typed Errors
+
+Use `Schema.TaggedError` for typed errors:
+
+```typescript
+import { Schema } from "effect"
+
+export class UserNotFoundError extends Schema.TaggedError<UserNotFoundError>()("UserNotFoundError", {
+  userId: Schema.String,
+  message: Schema.String,
+}) {}
+
+export class DatabaseError extends Schema.TaggedError<DatabaseError>()("DatabaseError", {
+  cause: Schema.Unknown,
+  message: Schema.String,
+}) {}
+```
+
+### Handling Errors with catchTag
+
+**Always prefer `catchTag` over `catchAll`** to preserve error types:
+
+```typescript
+import { Effect } from "effect"
+
+// ✅ CORRECT - catchTag preserves error types
+const program = Effect.gen(function* () {
+  return yield* fetchUser(userId).pipe(
+    Effect.catchTag("UserNotFoundError", (err) =>
+      Effect.succeed(null)  // Return null for not found
+    ),
+    Effect.catchTag("DatabaseError", (err) =>
+      Effect.fail(new InternalServerError({ cause: err }))
+    ),
+  )
+})
+
+// ❌ WRONG - catchAll loses error type information
+const badProgram = Effect.gen(function* () {
+  return yield* fetchUser(userId).pipe(
+    Effect.catchAll((err) =>
+      Effect.fail(new InternalServerError())  // Lost specific error info!
+    ),
+  )
+})
+```
+
+### Error Unions
+
+Combine multiple error types:
+
+```typescript
+import { Schema } from "effect"
+
+export const MessageErrors = Schema.Union(
+  MessageNotFoundError,
+  UnauthorizedError,
+  RateLimitExceededError,
+  InternalServerError,
+)
+
+type MessageErrors = Schema.Schema.Type<typeof MessageErrors>
+```
+
+## Transaction Patterns
+
+### Automatic Transaction Context
+
+The database layer provides automatic transaction propagation:
+
+```typescript
+import { Effect } from "effect"
+import { Database } from "@hazel/db"
+import { UserRepo, OrganizationRepo } from "@hazel/backend-core"
+
+const createUserWithOrg = (userData: UserInsert, orgData: OrgInsert) =>
+  Effect.gen(function* () {
+    const db = yield* Database
+    
+    return yield* db.transaction(
+      Effect.gen(function* () {
+        // Both operations share the same transaction automatically
+        const user = yield* UserRepo.insert(userData)
+        const org = yield* OrganizationRepo.insert({
+          ...orgData,
+          ownerId: user.id,
+        })
+        
+        return { user, org }
+      }),
+    )
+  })
+```
+
+<Info>
+No need to manually pass transaction clients - Effect's Context system handles it automatically.
+</Info>
+
+## Real-World Examples
+
+### Backend Service Example
+
+From `apps/backend/src/services/session-manager.ts`:
+
+```typescript
+import { Effect } from "effect"
+import { ResultPersistence } from "@effect/platform"
+import { WorkOSAuth } from "./workos-auth"
+import { UserRepo } from "@hazel/backend-core"
+
+export class SessionManager extends Effect.Service<SessionManager>()("SessionManager", {
+  accessors: true,
+  dependencies: [
+    WorkOSAuth.Default,
+    UserRepo.Default,
+    ResultPersistence.Default,
+  ],
+  effect: Effect.gen(function* () {
+    const workos = yield* WorkOSAuth
+    const userRepo = yield* UserRepo
+    const cache = yield* ResultPersistence
+    
+    const authenticateWithBearer = (token: string) =>
+      Effect.gen(function* () {
+        // Check cache first
+        const cached = yield* cache.get(`session:${token}`).pipe(
+          Effect.option,
+        )
+        
+        if (Option.isSome(cached)) {
+          return cached.value
+        }
+        
+        // Verify with WorkOS
+        const session = yield* workos.verifySession(token)
+        const user = yield* userRepo.findById(session.userId)
+        
+        if (Option.isNone(user)) {
+          return yield* Effect.fail(new UnauthorizedError())
+        }
+        
+        // Cache for 5 minutes
+        yield* cache.set(`session:${token}`, user.value, 300)
+        
+        return user.value
+      })
+    
+    return { authenticateWithBearer }
+  }),
+}) {}
+```
+
+### RPC Handler Example
+
+From `apps/backend/src/rpc/messages.ts`:
+
+```typescript
+import { Rpc } from "@effect/rpc"
+import { Effect } from "effect"
+import { MessageRepo, ChannelRepo } from "@hazel/backend-core"
+import { MessagePolicy } from "../policies/message-policy"
+import { policyUse } from "@hazel/backend-core"
+
+export const messageCreate = Rpc.effect(
+  Rpc.Messages.MessageCreate,
+  (payload) =>
+    Effect.gen(function* () {
+      const messageRepo = yield* MessageRepo
+      const channelRepo = yield* ChannelRepo
+      const currentUser = yield* CurrentUser
+      
+      // Verify channel exists
+      const channel = yield* channelRepo.findById(payload.channelId)
+      if (Option.isNone(channel)) {
+        return yield* Effect.fail(new ChannelNotFoundError())
+      }
+      
+      // Create message with policy check
+      const message = yield* messageRepo.insert({
+        ...payload,
+        authorId: currentUser.id,
+      }).pipe(
+        policyUse(MessagePolicy.canCreate(payload.channelId)),
+      )
+      
+      return { data: message, transactionId: yield* generateTransactionId() }
+    }),
+)
+```
+
+### Repository Pattern Example
+
+From `packages/backend-core/src/repositories/message-repo.ts`:
+
+```typescript
+import { Effect } from "effect"
+import { Database, ModelRepository, schema } from "@hazel/db"
+import { Message } from "@hazel/domain/models"
+
+export class MessageRepo extends Effect.Service<MessageRepo>()("MessageRepo", {
+  accessors: true,
+  dependencies: [Database.Default],
+  effect: Effect.gen(function* () {
+    const db = yield* Database
+    
+    // Base repository with standard CRUD operations
+    const baseRepo = yield* ModelRepository.makeRepository(
+      schema.messagesTable,
+      Message.Model,
+      { idColumn: "id", name: "Message" },
+    )
+    
+    // Custom query methods
+    const findByChannel = (channelId: ChannelId, limit = 50, tx?: TxFn) =>
+      db.makeQuery(
+        (execute) =>
+          execute((client) =>
+            client
+              .select()
+              .from(schema.messagesTable)
+              .where(eq(schema.messagesTable.channelId, channelId))
+              .orderBy(desc(schema.messagesTable.createdAt))
+              .limit(limit)
+          ),
+        policyRequire("Message", "select"),
+      )({ channelId }, tx)
+    
+    return {
+      ...baseRepo,
+      findByChannel,
+    }
+  }),
+}) {}
+```
+
+## Concurrency Patterns
+
+### Running Effects in Parallel
+
+```typescript
+import { Effect } from "effect"
+
+const program = Effect.gen(function* () {
+  // Run multiple effects in parallel
+  const [users, channels, messages] = yield* Effect.all([
+    userRepo.findAll(),
+    channelRepo.findAll(),
+    messageRepo.findAll(),
+  ], { concurrency: "unbounded" })
+  
+  return { users, channels, messages }
+})
+```
+
+### Racing Effects
+
+```typescript
+import { Effect, Duration } from "effect"
+
+const withTimeout = <A, E, R>(effect: Effect.Effect<A, E, R>, ms: number) =>
+  Effect.race(
+    effect,
+    Effect.sleep(Duration.millis(ms)).pipe(
+      Effect.flatMap(() => Effect.fail(new TimeoutError())),
+    ),
+  )
+
+const result = yield* withTimeout(fetchData(), 5000)
+```
+
+## Testing with Effect
+
+### Mock Layers for Testing
+
+```typescript
+import { Effect, Layer } from "effect"
+import { UserRepo } from "@hazel/backend-core"
+
+const UserRepoMock = Layer.succeed(UserRepo, {
+  findById: (userId) =>
+    Effect.succeed(Option.some({
+      id: userId,
+      name: "Test User",
+      email: "test@example.com",
+    })),
+  insert: (data) =>
+    Effect.succeed({
+      id: "test-id",
+      ...data,
+    }),
+})
+
+// Use in tests
+const testProgram = program.pipe(Layer.provide(UserRepoMock))
+```
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Use Effect.Service" icon="code">
+    Always use `Effect.Service` instead of `Context.Tag` for service definitions.
+  </Card>
+  <Card title="Declare Dependencies" icon="link">
+    Always declare dependencies in the `dependencies` array to avoid leaked deps.
+  </Card>
+  <Card title="Use catchTag" icon="shield-halved">
+    Prefer `catchTag` over `catchAll` to preserve error type information.
+  </Card>
+  <Card title="Typed Errors" icon="circle-exclamation">
+    Use `Schema.TaggedError` for all custom errors with structured data.
+  </Card>
+  <Card title="Generator Syntax" icon="code">
+    Use `Effect.gen(function* () {})` for sequential operations.
+  </Card>
+  <Card title="Layer Composition" icon="layer-group">
+    Compose layers with `Layer.mergeAll` for clean dependency graphs.
+  </Card>
+</CardGroup>
+
+## Additional Resources
+
+<Info>
+For more Effect-TS patterns and examples, see the `.context/effect/` directory in the repository.
+</Info>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Database Package" icon="database" href="/reference/database">
+    Learn about the database layer and transaction patterns
+  </Card>
+  <Card title="RPC System" icon="code" href="/architecture/rpc-system">
+    Explore the type-safe RPC system built on Effect RPC
+  </Card>
+</CardGroup>

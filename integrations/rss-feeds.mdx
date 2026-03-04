@@ -1,0 +1,421 @@
+---
+title: RSS Feed Subscriptions
+description: Automatically post new RSS feed items to channels
+---
+
+Subscribe Hazel Chat channels to RSS feeds and automatically post new items as they're published. Perfect for blogs, release notes, news sources, and podcasts.
+
+## Overview
+
+The RSS integration allows you to:
+
+- **Subscribe channels** to any RSS or Atom feed
+- **Configure polling intervals** (how often to check for new items)
+- **Automatic formatting** of feed items as messages
+- **Enable/disable** subscriptions without deleting them
+- **Error tracking** for failed feed fetches
+
+New items are posted to subscribed channels as messages from the RSS integration bot.
+
+## Creating Subscriptions
+
+<Steps>
+  <Step title="Find the RSS Feed URL">
+    Locate the RSS feed URL for the content you want to follow:
+    
+    - **Blogs**: Look for RSS icon or `/feed` URL
+    - **GitHub Releases**: `https://github.com/{owner}/{repo}/releases.atom`
+    - **YouTube Channels**: Use channel ID in feed URL
+    - **Podcasts**: Use the feed URL from the podcast directory
+  </Step>
+  
+  <Step title="Create Subscription">
+    Subscribe a channel to the RSS feed:
+    
+    ```typescript
+    import { RssSubscriptionRpcs } from "@hazel/domain/rpc"
+    
+    const { data: subscription } = yield* rpc.rssSubscription.create({
+      channelId: "channel_abc123",
+      feedUrl: "https://hazel.sh/blog/feed.xml",
+      pollingIntervalMinutes: 60, // Check every hour (optional)
+    })
+    ```
+  </Step>
+  
+  <Step title="Verify Feed">
+    The feed is validated on creation. If invalid, an `RssFeedValidationError` is returned:
+    
+    ```typescript
+    yield* rpc.rssSubscription.create({
+      channelId: "channel_abc123",
+      feedUrl: "https://example.com/invalid-feed",
+    }).pipe(
+      Effect.catchTag("RssFeedValidationError", (error) =>
+        Effect.gen(function* () {
+          yield* Effect.log(`Invalid feed: ${error.message}`)
+        })
+      )
+    )
+    ```
+  </Step>
+</Steps>
+
+## Polling Workflow
+
+RSS feeds are polled on a schedule using a durable workflow:
+
+```typescript packages/domain/src/cluster/workflows/rss-feed-poll-workflow.ts:7-23
+export const RssFeedPollWorkflow = Workflow.make({
+  name: "RssFeedPollWorkflow",
+  payload: {
+    subscriptionId: RssSubscriptionId,
+    channelId: ChannelId,
+    organizationId: OrganizationId,
+    feedUrl: Schema.String,
+    pollTimestamp: Schema.Number,
+    subscribedAt: Schema.Number, // Items older than this are skipped
+  },
+  error: RssFeedPollWorkflowError,
+  // Use subscription ID + timestamp for idempotency
+  idempotencyKey: (payload) => `${payload.subscriptionId}-${payload.pollTimestamp}`,
+})
+```
+
+The workflow:
+
+1. Fetches the RSS feed at the configured interval
+2. Parses feed items and compares against last fetched item
+3. Posts new items as messages in the subscribed channel
+4. Updates subscription metadata (lastFetchedAt, lastItemPublishedAt, lastItemGuid)
+5. Tracks errors and retries on failure
+
+### Polling Intervals
+
+Configure how often feeds are checked:
+
+```typescript
+// Every 15 minutes (high frequency)
+pollingIntervalMinutes: 15
+
+// Every hour (default)
+pollingIntervalMinutes: 60
+
+// Every 6 hours (low frequency)
+pollingIntervalMinutes: 360
+```
+
+## Managing Subscriptions
+
+### List Subscriptions
+
+<CodeGroup>
+```typescript By Channel
+const { data: subscriptions } = yield* rpc.rssSubscription.list({
+  channelId: "channel_abc123",
+})
+```
+
+```typescript By Organization
+const { data: subscriptions } = yield* rpc.rssSubscription.listByOrganization({})
+```
+</CodeGroup>
+
+### Update Subscription
+
+```typescript
+const { data: subscription } = yield* rpc.rssSubscription.update({
+  id: subscriptionId,
+  pollingIntervalMinutes: 120, // Change to 2 hours
+  isEnabled: true,
+})
+```
+
+### Disable Subscription
+
+Temporarily pause polling without deleting:
+
+```typescript
+const { data: subscription } = yield* rpc.rssSubscription.update({
+  id: subscriptionId,
+  isEnabled: false,
+})
+```
+
+### Delete Subscription
+
+```typescript
+const { transactionId } = yield* rpc.rssSubscription.delete({
+  id: subscriptionId,
+})
+```
+
+## Subscription Schema
+
+Each RSS subscription includes:
+
+```typescript packages/domain/src/models/rss-subscription-model.ts:6-25
+export class Model extends M.Class<Model>("RssSubscription")({
+  id: M.Generated(RssSubscriptionId),
+  channelId: ChannelId,
+  organizationId: OrganizationId,
+  feedUrl: Schema.String,
+  feedTitle: Schema.NullOr(Schema.String),
+  feedIconUrl: Schema.NullOr(Schema.String),
+  lastFetchedAt: M.Generated(Schema.NullOr(JsonDate)),
+  lastItemPublishedAt: M.Generated(Schema.NullOr(JsonDate)),
+  lastItemGuid: M.Generated(Schema.NullOr(Schema.String)),
+  consecutiveErrors: M.Generated(Schema.Number),
+  lastErrorMessage: M.Generated(Schema.NullOr(Schema.String)),
+  lastErrorAt: M.Generated(Schema.NullOr(JsonDate)),
+  isEnabled: Schema.Boolean,
+  pollingIntervalMinutes: Schema.Number,
+  createdBy: UserId,
+  createdAt: M.Generated(JsonDate),
+  updatedAt: M.Generated(Schema.NullOr(JsonDate)),
+  deletedAt: M.GeneratedByApp(Schema.NullOr(Schema.String)),
+}) {}
+```
+
+### Error Tracking
+
+Subscriptions track polling errors:
+
+- `consecutiveErrors` - Number of consecutive failed fetches
+- `lastErrorMessage` - Last error message
+- `lastErrorAt` - Timestamp of last error
+
+After multiple consecutive errors, the subscription may be automatically disabled to prevent resource waste.
+
+## Message Format
+
+RSS items are posted as formatted messages:
+
+### Blog Post
+
+```
+[Hazel Blog] Introducing Real-time Collaboration
+
+We're excited to announce real-time presence and typing indicators...
+
+Published: 2024-03-04 10:30 AM
+https://hazel.sh/blog/real-time-collaboration
+```
+
+### GitHub Release
+
+```
+[hazel-chat/hazel] v2.1.0 Released
+
+Bug fixes and performance improvements:
+- Fix memory leak in websocket handler
+- Improve database query performance
+
+https://github.com/hazel-chat/hazel/releases/tag/v2.1.0
+```
+
+### Podcast Episode
+
+```
+[The Changelog] Episode 542: AI in Software Development
+
+We discuss the latest trends in AI-assisted coding with special guest...
+
+Duration: 1h 23m
+https://changelog.com/podcast/542
+```
+
+## RPC Schema Reference
+
+### Create Subscription
+
+```typescript packages/domain/src/rpc/rss-subscriptions.ts:47-61
+Rpc.make("rssSubscription.create", {
+  payload: Schema.Struct({
+    channelId: ChannelId,
+    feedUrl: Schema.String,
+    pollingIntervalMinutes: Schema.optional(Schema.Number),
+  }),
+  success: RssSubscriptionResponse,
+  error: Schema.Union(
+    ChannelNotFoundError,
+    RssSubscriptionExistsError,
+    RssFeedValidationError,
+    UnauthorizedError,
+    InternalServerError,
+  ),
+}).middleware(AuthMiddleware)
+```
+
+### Update Subscription
+
+```typescript packages/domain/src/rpc/rss-subscriptions.ts:75-83
+Rpc.make("rssSubscription.update", {
+  payload: Schema.Struct({
+    id: RssSubscriptionId,
+    isEnabled: Schema.optional(Schema.Boolean),
+    pollingIntervalMinutes: Schema.optional(Schema.Number),
+  }),
+  success: RssSubscriptionResponse,
+  error: Schema.Union(RssSubscriptionNotFoundError, UnauthorizedError, InternalServerError),
+}).middleware(AuthMiddleware)
+```
+
+## Common Use Cases
+
+### Engineering Team Updates
+
+```typescript
+// GitHub releases for dependencies
+yield* rpc.rssSubscription.create({
+  channelId: "channel_engineering",
+  feedUrl: "https://github.com/Effect-TS/effect/releases.atom",
+  pollingIntervalMinutes: 360, // Check every 6 hours
+})
+
+// Team blog
+yield* rpc.rssSubscription.create({
+  channelId: "channel_engineering",
+  feedUrl: "https://engineering.acme.com/feed.xml",
+  pollingIntervalMinutes: 60,
+})
+```
+
+### Product Announcements
+
+```typescript
+// Product Hunt launches
+yield* rpc.rssSubscription.create({
+  channelId: "channel_product",
+  feedUrl: "https://www.producthunt.com/feed",
+  pollingIntervalMinutes: 120,
+})
+
+// Competitor blogs
+yield* rpc.rssSubscription.create({
+  channelId: "channel_competitive",
+  feedUrl: "https://competitor.com/blog/feed.xml",
+  pollingIntervalMinutes: 360,
+})
+```
+
+### News & Industry
+
+```typescript
+// Hacker News front page
+yield* rpc.rssSubscription.create({
+  channelId: "channel_news",
+  feedUrl: "https://hnrss.org/frontpage",
+  pollingIntervalMinutes: 30,
+})
+
+// Industry publications
+yield* rpc.rssSubscription.create({
+  channelId: "channel_industry",
+  feedUrl: "https://techcrunch.com/feed/",
+  pollingIntervalMinutes: 60,
+})
+```
+
+## Error Handling
+
+### Common Errors
+
+| Error | Cause | Solution |
+|-------|-------|----------|
+| `RssFeedValidationError` | Invalid or unreachable feed URL | Verify the feed URL is correct and publicly accessible |
+| `RssSubscriptionExistsError` | Channel already subscribed to feed | Update existing subscription or delete it first |
+| `ChannelNotFoundError` | Invalid channel ID | Verify the channel exists and you have access |
+| `UnauthorizedError` | User not authorized | Must be organization admin to manage subscriptions |
+
+### Error Example
+
+```typescript
+const result = yield* rpc.rssSubscription.create({
+  channelId: "channel_abc123",
+  feedUrl: "https://example.com/feed.xml",
+}).pipe(
+  Effect.catchTag("RssFeedValidationError", (error) =>
+    Effect.gen(function* () {
+      yield* Effect.log(`Feed validation failed: ${error.message}`)
+      // Show user-friendly error message
+    })
+  ),
+  Effect.catchTag("RssSubscriptionExistsError", (error) =>
+    Effect.gen(function* () {
+      yield* Effect.log(`Already subscribed to feed: ${error.feedUrl}`)
+      // Fetch and update existing subscription
+    })
+  ),
+)
+```
+
+## Best Practices
+
+<Steps>
+  <Step title="Choose Appropriate Intervals">
+    Match polling frequency to content update rate:
+    
+    - **15-30 min**: High-frequency news feeds
+    - **1 hour**: Most blogs and releases
+    - **6-12 hours**: Low-frequency content
+    
+    Shorter intervals consume more resources and may hit rate limits.
+  </Step>
+  
+  <Step title="Validate Feeds Before Subscribing">
+    Test feed URLs in an RSS reader first to ensure they're valid and contain expected content.
+  </Step>
+  
+  <Step title="Monitor for Errors">
+    Check subscription error counts periodically:
+    
+    ```typescript
+    const { data: subscriptions } = yield* rpc.rssSubscription.listByOrganization({})
+    
+    subscriptions.forEach(sub => {
+      if (sub.consecutiveErrors > 5) {
+        console.warn(`Feed ${sub.feedUrl} has ${sub.consecutiveErrors} errors`)
+      }
+    })
+    ```
+  </Step>
+  
+  <Step title="Use Dedicated Channels">
+    Create separate channels for different content types:
+    
+    - `#engineering-releases` - Dependency releases
+    - `#product-news` - Product announcements
+    - `#industry-news` - Industry publications
+  </Step>
+  
+  <Step title="Disable Instead of Delete">
+    Temporarily disable subscriptions to preserve configuration:
+    
+    ```typescript
+    // Pause during vacation
+    yield* rpc.rssSubscription.update({
+      id: subscriptionId,
+      isEnabled: false,
+    })
+    
+    // Resume later
+    yield* rpc.rssSubscription.update({
+      id: subscriptionId,
+      isEnabled: true,
+    })
+    ```
+  </Step>
+</Steps>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Channel Webhooks" icon="webhook" href="/integrations/webhooks">
+    Create incoming webhooks for external notifications
+  </Card>
+  
+  <Card title="Bot Creation" icon="robot" href="/integrations/bots">
+    Build custom bots with the Hazel Bot SDK
+  </Card>
+</CardGroup>

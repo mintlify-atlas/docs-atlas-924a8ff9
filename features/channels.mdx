@@ -1,0 +1,266 @@
+---
+title: Channels
+description: Organize conversations with public channels, private channels, threads, and direct messages
+icon: hashtag
+---
+
+Channels are the foundation of organization in Hazel Chat. They provide structured spaces for conversations with flexible privacy and access controls.
+
+## Channel Types
+
+Hazel Chat supports five distinct channel types, each designed for specific use cases:
+
+<CardGroup cols={2}>
+  <Card title="Public Channels" icon="hashtag">
+    Open to all organization members. Perfect for team-wide discussions, announcements, and general topics.
+  </Card>
+  <Card title="Private Channels" icon="lock">
+    Invitation-only channels with restricted access. Ideal for sensitive discussions or specific project teams.
+  </Card>
+  <Card title="Thread Channels" icon="comment">
+    Focused conversations spawned from specific messages. Keeps detailed discussions organized.
+  </Card>
+  <Card title="Direct Messages" icon="envelope">
+    One-on-one conversations between two users. Private and personal communication.
+  </Card>
+  <Card title="Group Messages" icon="users">
+    Multi-person direct conversations. Like group DMs in other platforms.
+  </Card>
+</CardGroup>
+
+## Creating Channels
+
+### Public and Private Channels
+
+Create a new channel:
+
+1. Click the **+** button next to "Channels" in the sidebar (or press **Cmd/Ctrl+Shift+N**)
+2. Enter a channel name (e.g., "engineering" or "marketing")
+3. Select channel type: **Public** or **Private**
+4. Optionally add an icon emoji
+5. Optionally assign to a channel section
+6. Choose whether to add all organization members automatically
+7. Click **Create Channel**
+
+The current user is automatically added as a channel member.
+
+<Info>
+  Channel names should be descriptive and lowercase. They appear with a # prefix in the interface (e.g., #engineering).
+</Info>
+
+### Direct Messages
+
+Start a direct message conversation:
+
+1. Click **New Message** in the sidebar (or press **Cmd/Ctrl+K** then select a user)
+2. Select a user from the organization
+3. The system checks if a DM already exists:
+   - If yes, navigate to the existing conversation
+   - If no, create a new single DM channel
+
+Direct messages are automatically named with the participants' names and use the `single` channel type.
+
+### Group Direct Messages
+
+Create a group conversation:
+
+1. Click **New Message** and select multiple users
+2. Optionally provide a group name
+3. A `direct` type channel is created with all participants
+
+Group DMs function like private channels but are specifically for direct conversations between specific users.
+
+### Thread Channels
+
+Thread channels are created automatically when you start a thread on a message. See [Messaging - Message Threads](/features/messaging#message-threads) for details.
+
+## Channel Management
+
+### Channel Settings
+
+Access channel settings by clicking the channel name in the header:
+
+**General Settings:**
+- Edit channel name
+- Change channel icon
+- Update channel description
+- Delete the channel (admins only)
+
+**Member Management:**
+- View all channel members
+- Add new members to private channels
+- Remove members from channels
+- Manage member permissions
+
+**Integrations:**
+- Create webhooks for incoming messages
+- Configure bot access
+- Set up external integrations (GitHub, RSS)
+
+### Channel Sections
+
+Organize channels into sections for better navigation:
+
+1. Create a section in the sidebar (e.g., "Projects", "Teams")
+2. Assign channels to sections when creating them
+3. Drag and drop channels between sections
+4. Collapse/expand sections to manage sidebar space
+
+Sections help organize large workspaces with many channels.
+
+<Note>
+  Channel sections are personal to each user. Your section organization doesn't affect other team members.
+</Note>
+
+## Channel Membership
+
+### Joining Channels
+
+**Public Channels:**
+- Browse discoverable channels in the sidebar
+- Click **Join** to become a member
+- Automatically added to your channel list
+
+**Private Channels:**
+- Must be invited by an existing member
+- Accept invitation to join
+- Cannot see private channels you're not a member of
+
+**Auto-Join:**
+- When creating a channel, optionally add all organization members
+- New organization members don't auto-join existing channels
+
+### Leaving Channels
+
+1. Open channel settings
+2. Click **Leave Channel**
+3. Confirm your choice
+
+Leaving a channel removes you from the member list. You won't receive notifications or see new messages.
+
+<Warning>
+  If you're the last member of a private channel, leaving it may make the channel inaccessible to everyone.
+</Warning>
+
+## Channel Features
+
+### Favorites
+
+Mark important channels as favorites:
+
+1. Right-click a channel in the sidebar
+2. Select **Add to Favorites**
+3. Favorited channels appear in a dedicated section at the top
+
+Favorites provide quick access to your most-used channels.
+
+### Muting Channels
+
+Reduce noise from busy channels:
+
+1. Right-click a channel or open settings
+2. Toggle **Mute Channel**
+3. You'll still see new messages but won't receive notifications
+
+Unread counts still increment for muted channels.
+
+### Hiding Channels
+
+Temporarily hide channels from your sidebar:
+
+1. Right-click a channel
+2. Select **Hide Channel**
+3. The channel disappears from your list but you remain a member
+4. Unhide via channel settings or search
+
+Hidden channels are useful for seasonal projects or archived discussions.
+
+### Pinned Messages
+
+Pin important messages in any channel:
+
+1. Hover over a message and click **Pin**
+2. Pinned messages appear in the channel sidebar
+3. Quick access to important information
+
+See [Messaging](/features/messaging) for more about pinned messages.
+
+## Channel Notifications
+
+Each channel member has an individual notification counter:
+
+- Increments with each new message
+- Decrements when messages are viewed
+- Resets to zero when you scroll to the latest message
+- Appears as a badge on the channel in the sidebar
+
+Notifications respect channel mute settings. See [Notifications](/features/notifications) for more details.
+
+## Discoverable Channels
+
+Public channels appear in the **Browse Channels** section:
+
+- Shows all public channels in the organization
+- Displays member count and description
+- One-click join functionality
+- Search to find specific channels
+
+## Parent and Child Channels
+
+Channels can have a parent-child relationship:
+
+- Set `parentChannelId` when creating a channel
+- Child channels appear nested under parents
+- Thread channels automatically set their parent
+- Useful for organizing related topics
+
+## Technical Details
+
+### Channel Data Model
+
+Each channel includes:
+
+- `id` - Unique channel identifier
+- `name` - Channel display name
+- `icon` - Optional emoji icon
+- `type` - Channel type (public/private/thread/direct/single)
+- `organizationId` - Parent organization
+- `parentChannelId` - Optional parent channel
+- `sectionId` - Optional section assignment
+- `createdAt` - Creation timestamp
+- `updatedAt` - Last update timestamp
+- `deletedAt` - Soft delete timestamp
+
+### Channel Member Data
+
+Channel membership tracks:
+
+- `id` - Membership record ID
+- `channelId` - Associated channel
+- `userId` - Member user ID
+- `isHidden` - Hidden from sidebar
+- `isMuted` - Notifications suppressed
+- `isFavorite` - Favorited status
+- `lastSeenMessageId` - Last viewed message
+- `notificationCount` - Unread message count
+- `joinedAt` - Membership timestamp
+
+### Permissions
+
+Channel operations require appropriate permissions:
+
+- **Create channels** - Organization member
+- **Update channels** - Channel member or admin
+- **Delete channels** - Organization admin/owner
+- **Add members** - Channel members (for private channels)
+- **Remove members** - Admin or the member themselves
+
+### AI Thread Naming
+
+Thread channels can generate intelligent names:
+
+- Uses the ThreadNamingWorkflow via Effect Cluster
+- Analyzes original message and thread context
+- Generates descriptive 3-6 word names
+- Handles AI provider errors gracefully
+- Falls back to generic names if AI unavailable

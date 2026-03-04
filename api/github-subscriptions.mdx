@@ -1,0 +1,364 @@
+---
+title: GitHub Subscriptions API
+description: Subscribe channels to GitHub repository events and manage webhooks
+---
+
+## Overview
+
+The GitHub Subscriptions API allows you to subscribe channels to GitHub repository events. When events occur (like pushes, pull requests, or issues), notifications are automatically posted to the subscribed channel.
+
+Your organization must have GitHub connected before creating subscriptions.
+
+## Supported Event Types
+
+The following GitHub events can be subscribed to:
+
+- `push` - Code pushes to repository
+- `pull_request` - Pull request opened, closed, merged, etc.
+- `issues` - Issues created, updated, closed, etc.
+- `release` - New releases published
+- `deployment_status` - Deployment status changes
+- `workflow_run` - GitHub Actions workflow runs
+- `star` - Repository starred or unstarred
+- `milestone` - Milestones created, updated, or completed
+
+---
+
+## githubSubscription.create
+
+Subscribe a channel to a GitHub repository's events.
+
+<ParamField path="channelId" type="ChannelId" required>
+  Channel to receive GitHub notifications
+</ParamField>
+
+<ParamField path="repositoryId" type="number" required>
+  GitHub's numeric repository ID (stable across renames)
+</ParamField>
+
+<ParamField path="repositoryFullName" type="string" required>
+  Repository full name in "owner/repo" format (for display)
+</ParamField>
+
+<ParamField path="repositoryOwner" type="string" required>
+  Repository owner (user or organization)
+</ParamField>
+
+<ParamField path="repositoryName" type="string" required>
+  Repository name
+</ParamField>
+
+<ParamField path="enabledEvents" type="GitHubEventType[]" required>
+  Array of event types to subscribe to
+</ParamField>
+
+<ParamField path="branchFilter" type="string | null">
+  Optional branch filter for push events (e.g., "main", null = all branches)
+</ParamField>
+
+<ResponseField name="data" type="GitHubSubscription">
+  The created subscription
+  <Expandable title="properties">
+    <ResponseField name="id" type="GitHubSubscriptionId">
+      Unique subscription identifier
+    </ResponseField>
+    <ResponseField name="channelId" type="ChannelId">
+      Channel receiving notifications
+    </ResponseField>
+    <ResponseField name="organizationId" type="OrganizationId">
+      Organization that owns this subscription
+    </ResponseField>
+    <ResponseField name="repositoryId" type="number">
+      GitHub repository ID
+    </ResponseField>
+    <ResponseField name="repositoryFullName" type="string">
+      Repository full name ("owner/repo")
+    </ResponseField>
+    <ResponseField name="repositoryOwner" type="string">
+      Repository owner
+    </ResponseField>
+    <ResponseField name="repositoryName" type="string">
+      Repository name
+    </ResponseField>
+    <ResponseField name="enabledEvents" type="GitHubEventType[]">
+      Subscribed event types
+    </ResponseField>
+    <ResponseField name="branchFilter" type="string | null">
+      Branch filter for push events
+    </ResponseField>
+    <ResponseField name="isEnabled" type="boolean">
+      Whether subscription is active
+    </ResponseField>
+    <ResponseField name="createdBy" type="UserId">
+      User who created the subscription
+    </ResponseField>
+    <ResponseField name="createdAt" type="Date">
+      Creation timestamp
+    </ResponseField>
+    <ResponseField name="updatedAt" type="Date | null">
+      Last update timestamp
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="transactionId" type="TransactionId">
+  Transaction ID for optimistic updates
+</ResponseField>
+
+**Errors:**
+- `ChannelNotFoundError` - Channel doesn't exist
+- `GitHubNotConnectedError` - Organization hasn't connected GitHub
+- `GitHubSubscriptionExistsError` - Channel is already subscribed to this repository
+- `UnauthorizedError` - User is not authorized
+- `InternalServerError` - Server error
+
+<CodeGroup>
+```typescript Example
+const result = await client.rpc("githubSubscription.create", {
+  channelId: "channel_123",
+  repositoryId: 12345678,
+  repositoryFullName: "hazelchat/hazel",
+  repositoryOwner: "hazelchat",
+  repositoryName: "hazel",
+  enabledEvents: ["push", "pull_request", "issues"],
+  branchFilter: "main" // Only notify for main branch pushes
+})
+
+console.log("Subscribed to:", result.data.repositoryFullName)
+```
+
+```typescript All Events, All Branches
+const result = await client.rpc("githubSubscription.create", {
+  channelId: "channel_123",
+  repositoryId: 12345678,
+  repositoryFullName: "hazelchat/hazel",
+  repositoryOwner: "hazelchat",
+  repositoryName: "hazel",
+  enabledEvents: [
+    "push",
+    "pull_request",
+    "issues",
+    "release",
+    "workflow_run"
+  ],
+  branchFilter: null // All branches
+})
+```
+</CodeGroup>
+
+---
+
+## githubSubscription.list
+
+List all GitHub subscriptions for a specific channel.
+
+<ParamField path="channelId" type="ChannelId" required>
+  Channel identifier
+</ParamField>
+
+<ResponseField name="data" type="GitHubSubscription[]">
+  Array of subscriptions for the channel
+</ResponseField>
+
+**Errors:**
+- `ChannelNotFoundError` - Channel doesn't exist
+- `UnauthorizedError` - User is not authorized
+- `InternalServerError` - Server error
+
+<CodeGroup>
+```typescript Example
+const result = await client.rpc("githubSubscription.list", {
+  channelId: "channel_123"
+})
+
+for (const sub of result.data) {
+  console.log(`Subscribed to: ${sub.repositoryFullName}`)
+  console.log(`Events: ${sub.enabledEvents.join(", ")}`)
+}
+```
+</CodeGroup>
+
+---
+
+## githubSubscription.listByOrganization
+
+List all GitHub subscriptions across all channels in your organization. Useful for organization-level integration settings.
+
+<ResponseField name="data" type="GitHubSubscription[]">
+  Array of all subscriptions in the organization
+</ResponseField>
+
+**Errors:**
+- `UnauthorizedError` - User is not authenticated
+- `InternalServerError` - Server error
+
+<CodeGroup>
+```typescript Example
+const result = await client.rpc("githubSubscription.listByOrganization", {})
+
+console.log(`Total subscriptions: ${result.data.length}`)
+
+// Group by repository
+const byRepo = result.data.reduce((acc, sub) => {
+  const repo = sub.repositoryFullName
+  acc[repo] = (acc[repo] || 0) + 1
+  return acc
+}, {})
+
+console.log("Subscriptions by repository:", byRepo)
+```
+</CodeGroup>
+
+---
+
+## githubSubscription.update
+
+Update a GitHub subscription's settings.
+
+<ParamField path="id" type="GitHubSubscriptionId" required>
+  Subscription identifier
+</ParamField>
+
+<ParamField path="enabledEvents" type="GitHubEventType[]">
+  New array of event types to subscribe to
+</ParamField>
+
+<ParamField path="branchFilter" type="string | null">
+  New branch filter (null = all branches)
+</ParamField>
+
+<ParamField path="isEnabled" type="boolean">
+  Enable or disable the subscription
+</ParamField>
+
+<ResponseField name="data" type="GitHubSubscription">
+  Updated subscription object
+</ResponseField>
+
+<ResponseField name="transactionId" type="TransactionId">
+  Transaction ID for optimistic updates
+</ResponseField>
+
+**Errors:**
+- `GitHubSubscriptionNotFoundError` - Subscription doesn't exist
+- `UnauthorizedError` - User is not authorized
+- `InternalServerError` - Server error
+
+<CodeGroup>
+```typescript Add More Events
+const result = await client.rpc("githubSubscription.update", {
+  id: "ghsub_abc123",
+  enabledEvents: [
+    "push",
+    "pull_request",
+    "issues",
+    "release", // Added
+    "workflow_run" // Added
+  ]
+})
+```
+
+```typescript Temporarily Disable
+await client.rpc("githubSubscription.update", {
+  id: "ghsub_abc123",
+  isEnabled: false
+})
+```
+
+```typescript Change Branch Filter
+await client.rpc("githubSubscription.update", {
+  id: "ghsub_abc123",
+  branchFilter: "production" // Only production branch
+})
+```
+</CodeGroup>
+
+---
+
+## githubSubscription.delete
+
+Delete a GitHub subscription (soft delete). The channel will stop receiving notifications from the repository.
+
+<ParamField path="id" type="GitHubSubscriptionId" required>
+  Subscription identifier
+</ParamField>
+
+<ResponseField name="transactionId" type="TransactionId">
+  Transaction ID for optimistic updates
+</ResponseField>
+
+**Errors:**
+- `GitHubSubscriptionNotFoundError` - Subscription doesn't exist
+- `UnauthorizedError` - User is not authorized
+- `InternalServerError` - Server error
+
+<CodeGroup>
+```typescript Example
+await client.rpc("githubSubscription.delete", {
+  id: "ghsub_abc123"
+})
+
+console.log("Subscription removed")
+```
+</CodeGroup>
+
+---
+
+## Event Filtering Examples
+
+### Development Channel (All Activity)
+
+<CodeGroup>
+```typescript All Events
+await client.rpc("githubSubscription.create", {
+  channelId: "dev_channel",
+  repositoryId: 12345678,
+  repositoryFullName: "myorg/myrepo",
+  repositoryOwner: "myorg",
+  repositoryName: "myrepo",
+  enabledEvents: [
+    "push",
+    "pull_request",
+    "issues",
+    "release",
+    "deployment_status",
+    "workflow_run",
+    "star",
+    "milestone"
+  ],
+  branchFilter: null // All branches
+})
+```
+</CodeGroup>
+
+### Production Channel (Releases Only)
+
+<CodeGroup>
+```typescript Releases Only
+await client.rpc("githubSubscription.create", {
+  channelId: "production_channel",
+  repositoryId: 12345678,
+  repositoryFullName: "myorg/myrepo",
+  repositoryOwner: "myorg",
+  repositoryName: "myrepo",
+  enabledEvents: ["release", "deployment_status"],
+  branchFilter: "main"
+})
+```
+</CodeGroup>
+
+### CI/CD Channel (Workflows and Deployments)
+
+<CodeGroup>
+```typescript CI/CD Events
+await client.rpc("githubSubscription.create", {
+  channelId: "cicd_channel",
+  repositoryId: 12345678,
+  repositoryFullName: "myorg/myrepo",
+  repositoryOwner: "myorg",
+  repositoryName: "myrepo",
+  enabledEvents: ["workflow_run", "deployment_status"],
+  branchFilter: null
+})
+```
+</CodeGroup>

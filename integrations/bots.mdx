@@ -1,0 +1,487 @@
+---
+title: Bot Creation & API
+description: Build custom bots with the Hazel Bot SDK for automation and integrations
+---
+
+Create intelligent bots that respond to messages, handle slash commands, and integrate with external services using the Hazel Bot SDK.
+
+## Overview
+
+Hazel bots are standalone services that connect to your workspace and interact with channels and messages in real-time. The Bot SDK is built with [Effect-TS](https://effect.website) and provides:
+
+- **Type-safe RPC client** for sending messages and managing channels
+- **Real-time event streaming** via Electric SQL
+- **Slash command registration** with type-safe arguments
+- **Message handlers** for @mentions and message events
+- **OAuth integration tokens** for Linear, GitHub, Figma, and Notion
+
+## Creating a Bot
+
+### 1. Register Your Bot
+
+Bots are created and managed through the RPC API:
+
+```typescript
+import { BotRpcs } from "@hazel/domain/rpc"
+
+// Create a new bot
+const response = yield* rpc.bot.create({
+  name: "My Assistant Bot",
+  description: "AI-powered helper for the team",
+  webhookUrl: "https://mybot.example.com/events", // Optional
+  scopes: [
+    "messages:read",
+    "messages:write",
+    "channels:read",
+    "users:read",
+    "commands:register"
+  ],
+  isPublic: false // Set to true for marketplace listing
+})
+
+// Save the token securely - it's only shown once!
+const botToken = response.token
+const botId = response.data.id
+```
+
+### 2. Bot Scopes
+
+Bots request specific permissions via scopes:
+
+| Scope | Description |
+|-------|-------------|
+| `messages:read` | Read messages in channels where bot is installed |
+| `messages:write` | Send, edit, and delete messages |
+| `channels:read` | Read channel information and members |
+| `channels:write` | Create threads, update channel metadata |
+| `users:read` | Read user profiles and presence |
+| `reactions:write` | Add/remove message reactions |
+| `commands:register` | Register slash commands |
+
+### 3. Install the Bot SDK
+
+```bash
+bun add @hazel/bot-sdk
+```
+
+## Building a Bot
+
+### Simple Echo Bot
+
+Here's a complete example that echoes messages and responds to `/echo` commands:
+
+```typescript
+import { Effect, Schema } from "effect"
+import { Command, CommandGroup, createHazelBot, HazelBotClient } from "@hazel/bot-sdk"
+
+// Define slash commands
+const EchoCommand = Command.make("echo", {
+  description: "Echo back a message",
+  args: {
+    text: Schema.String,
+  },
+  usageExample: "/echo Hello world!",
+})
+
+const commands = CommandGroup.make(EchoCommand)
+
+// Create bot runtime
+const runtime = createHazelBot({
+  botToken: process.env.BOT_TOKEN!,
+  commands,
+  mentionable: true, // Enable @mentions
+})
+
+// Define bot program
+const program = Effect.gen(function* () {
+  const bot = yield* HazelBotClient
+
+  // Handle /echo command
+  yield* bot.onCommand(EchoCommand, (ctx) =>
+    Effect.gen(function* () {
+      yield* bot.message.send(ctx.channelId, `Echo: ${ctx.args.text}`)
+    })
+  )
+
+  // Handle @mentions
+  yield* bot.onMention((message) =>
+    Effect.gen(function* () {
+      yield* bot.message.reply(message, "How can I help you?")
+    })
+  )
+
+  // Start the bot
+  yield* bot.start
+})
+
+runtime.runPromise(program.pipe(Effect.scoped))
+```
+
+### AI Bot with Tool Integration
+
+The Hazel Bot example from the source shows advanced AI integration:
+
+```typescript packages/domain/src/rpc/bots.ts:14-22
+import { runHazelBot } from "@hazel-chat/bot-sdk"
+import { Effect } from "effect"
+import { LinearApiClient } from "@hazel/integrations/linear"
+import { CraftApiClient } from "@hazel/integrations/craft"
+
+runHazelBot({
+  serviceName: "hazel-bot",
+  commands,
+  mentionable: true,
+  layers: [LinearApiClient.Default, CraftApiClient.Default],
+  setup: (bot) =>
+    Effect.gen(function* () {
+      // Track active AI threads
+      const activeThreads = new Map<string, OrganizationId>()
+
+      // Handle /ask command
+      yield* bot.onCommand(AskCommand, (ctx) =>
+        Effect.gen(function* () {
+          yield* handleAIRequest({
+            bot,
+            message: ctx.args.message,
+            channelId: ctx.channelId,
+            orgId: ctx.orgId,
+          })
+        })
+      )
+
+      // Handle @mentions - create thread and respond
+      yield* bot.onMention((message) =>
+        Effect.gen(function* () {
+          const thread = yield* bot.channel.createThread(
+            message.id,
+            message.channelId
+          )
+          
+          // Track thread for follow-ups
+          activeThreads.set(thread.id, thread.organizationId)
+
+          yield* handleAIRequest({
+            bot,
+            message: question,
+            channelId: thread.id,
+            orgId: thread.organizationId,
+          })
+        })
+      )
+    }),
+})
+```
+
+### Linear Integration Bot
+
+The Linear Bot demonstrates OAuth integration and AI-powered issue creation:
+
+```typescript bots/linear-bot/src/index.ts:26-53
+yield* bot.onCommand(IssueCommand, (ctx) =>
+  Effect.gen(function* () {
+    const { title, description } = ctx.args
+
+    // Get OAuth access token for Linear
+    const { accessToken } = yield* bot.integration.getToken(
+      ctx.orgId,
+      "linear"
+    )
+
+    // Create Linear issue
+    const issue = yield* LinearApiClient.createIssue(accessToken, {
+      title,
+      description,
+    })
+
+    yield* bot.message.send(
+      ctx.channelId,
+      `@[userId:${ctx.userId}] created an issue: ${issue.url}`
+    )
+  }).pipe(bot.withErrorHandler(ctx))
+)
+```
+
+## Bot API Reference
+
+### Message Operations
+
+<CodeGroup>
+```typescript Send Message
+yield* bot.message.send(channelId, "Hello world!", {
+  replyToMessageId: message.id,
+  threadChannelId: thread.id,
+  attachmentIds: [attachmentId],
+})
+```
+
+```typescript Reply to Message
+yield* bot.message.reply(message, "Got it!")
+```
+
+```typescript Update Message
+yield* bot.message.update(message, "Updated content")
+```
+
+```typescript Delete Message
+yield* bot.message.delete(messageId)
+```
+
+```typescript Add Reaction
+yield* bot.message.react(message, "👍")
+```
+
+```typescript List Messages
+const { data: messages } = yield* bot.message.list(channelId, {
+  limit: 50,
+  startingAfter: lastMessageId, // For pagination
+})
+```
+</CodeGroup>
+
+### Channel Operations
+
+<CodeGroup>
+```typescript Create Thread
+const thread = yield* bot.channel.createThread(
+  messageId,
+  channelId
+)
+// Use thread.id as the channel ID for replies
+```
+
+```typescript Update Channel
+yield* bot.channel.update(channel, {
+  name: "New Channel Name",
+  description: "Updated description",
+})
+```
+</CodeGroup>
+
+### Event Handlers
+
+<CodeGroup>
+```typescript Message Events
+// New messages
+yield* bot.onMessage((message) =>
+  Effect.gen(function* () {
+    yield* Effect.log(`New message: ${message.content}`)
+  })
+)
+
+// Message updates
+yield* bot.onMessageUpdate((message) => { /* ... */ })
+
+// Message deletes
+yield* bot.onMessageDelete((message) => { /* ... */ })
+```
+
+```typescript Channel Events
+// Channel created
+yield* bot.onChannelCreated((channel) => { /* ... */ })
+
+// Channel updated
+yield* bot.onChannelUpdated((channel) => { /* ... */ })
+
+// Channel deleted
+yield* bot.onChannelDeleted((channel) => { /* ... */ })
+```
+
+```typescript Member Events
+// Member added to channel
+yield* bot.onChannelMemberAdded((member) => { /* ... */ })
+
+// Member removed from channel
+yield* bot.onChannelMemberRemoved((member) => { /* ... */ })
+```
+</CodeGroup>
+
+### Slash Commands
+
+<CodeGroup>
+```typescript Define Command
+const IssueCommand = Command.make("issue", {
+  description: "Create a Linear issue",
+  args: {
+    title: Schema.String,
+    description: Schema.optional(Schema.String),
+  },
+  usageExample: '/issue title="Bug in login" description="Users cannot login"',
+})
+```
+
+```typescript Handle Command
+yield* bot.onCommand(IssueCommand, (ctx) =>
+  Effect.gen(function* () {
+    // ctx.args is fully typed!
+    const { title, description } = ctx.args
+    
+    yield* bot.message.send(
+      ctx.channelId,
+      `Creating issue: ${title}`
+    )
+  })
+)
+```
+
+```typescript Error Handling
+yield* bot.onCommand(MyCommand, (ctx) =>
+  Effect.gen(function* () {
+    // Command logic
+  }).pipe(bot.withErrorHandler(ctx)) // Auto-handles errors
+)
+```
+</CodeGroup>
+
+### Integration Tokens
+
+Access OAuth tokens for connected integrations:
+
+```typescript
+// Get Linear access token
+const { accessToken } = yield* bot.integration.getToken(
+  orgId,
+  "linear"
+)
+
+// Check enabled integrations
+const enabled = yield* bot.integration.getEnabled(orgId)
+if (enabled.has("linear")) {
+  // Linear is connected
+}
+```
+
+Supported integrations: `linear`, `github`, `figma`, `notion`
+
+## Bot Management
+
+### List Bots
+
+```typescript
+const { data: bots } = yield* rpc.bot.list({})
+```
+
+### Update Bot
+
+```typescript
+const { data: bot } = yield* rpc.bot.update({
+  id: botId,
+  name: "Updated Name",
+  scopes: ["messages:read", "messages:write"],
+  isPublic: true,
+})
+```
+
+### Regenerate Token
+
+```typescript
+const { data: bot, token } = yield* rpc.bot.regenerateToken({ id: botId })
+// Old token is invalidated immediately
+```
+
+### Delete Bot
+
+```typescript
+const { transactionId } = yield* rpc.bot.delete({ id: botId })
+```
+
+## Bot Marketplace
+
+### List Public Bots
+
+```typescript
+const { data: publicBots } = yield* rpc.bot.listPublic({
+  search: "linear",
+})
+
+// Each bot includes install status
+publicBots.forEach(bot => {
+  console.log(bot.name, bot.isInstalled, bot.creatorName)
+})
+```
+
+### Install Bot
+
+```typescript
+// Install by ID (public or shared)
+const { transactionId } = yield* rpc.bot.installById({ botId })
+
+// Install from marketplace
+const { transactionId } = yield* rpc.bot.install({ botId })
+```
+
+### Uninstall Bot
+
+```typescript
+const { transactionId } = yield* rpc.bot.uninstall({ botId })
+```
+
+## Best Practices
+
+<Steps>
+  <Step title="Secure Token Storage">
+    Store bot tokens in environment variables or secrets managers:
+    
+    ```bash
+    BOT_TOKEN=bot_xxxxxxxxxxxxx
+    ```
+    
+    Never commit tokens to version control.
+  </Step>
+  
+  <Step title="Handle Errors Gracefully">
+    Use `bot.withErrorHandler()` or `bot.ai.withErrorHandler()` to catch and log errors:
+    
+    ```typescript
+    yield* bot.onCommand(MyCommand, (ctx) =>
+      Effect.gen(function* () {
+        // Command logic
+      }).pipe(bot.withErrorHandler(ctx))
+    )
+    ```
+  </Step>
+  
+  <Step title="Rate Limiting">
+    The SDK includes built-in rate limiting (10 messages/second). For higher throughput, batch operations when possible.
+  </Step>
+  
+  <Step title="Avoid Infinite Loops">
+    Always check if the message author is the bot itself:
+    
+    ```typescript
+    yield* bot.onMessage((message) =>
+      Effect.gen(function* () {
+        const auth = yield* bot.getAuthContext
+        if (message.authorId === auth.userId) return
+        
+        // Process message
+      })
+    )
+    ```
+  </Step>
+  
+  <Step title="Logging & Monitoring">
+    Configure log levels for development and production:
+    
+    ```typescript
+    const runtime = createHazelBot({
+      botToken: process.env.BOT_TOKEN!,
+      logging: {
+        level: LogLevel.Debug, // Or LogLevel.Info for production
+        format: "pretty", // Or "structured" for production
+      },
+    })
+    ```
+  </Step>
+</Steps>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="GitHub Integration" icon="github" href="/integrations/github">
+    Subscribe channels to GitHub repositories
+  </Card>
+  
+  <Card title="RSS Feeds" icon="rss" href="/integrations/rss-feeds">
+    Automate content posting with RSS subscriptions
+  </Card>
+</CardGroup>

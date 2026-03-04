@@ -1,0 +1,694 @@
+---
+title: Environment Variables
+description: Complete reference of all environment variables used in Hazel Chat
+icon: terminal
+---
+
+This page documents all environment variables used across Hazel Chat services. Variables are grouped by service and include descriptions, default values, and examples.
+
+## Quick Reference
+
+<Note>
+  Run `bun run setup` to automatically generate all `.env` files with proper values.
+</Note>
+
+### Required Services
+
+| Service | Env File | Purpose |
+|---------|----------|----------|
+| Backend | `apps/backend/.env` | API server configuration |
+| Web | `apps/web/.env` | Frontend configuration |
+| Cluster | `apps/cluster/.env` | Workflow service |
+| Electric Proxy | `apps/electric-proxy/.env` | Real-time sync proxy |
+| Database | `packages/db/.env` | Database migrations |
+
+## Backend Variables
+
+Configuration for the Effect-TS API server.
+
+### Database
+
+<ParamField path="DATABASE_URL" type="string" required>
+  PostgreSQL connection string for the main application database.
+
+  <CodeGroup>
+  ```bash Development
+  DATABASE_URL=postgresql://user:password@localhost:5432/app
+  ```
+
+  ```bash Production
+  DATABASE_URL=postgresql://user:password@postgres.example.com:5432/app?sslmode=verify-full
+  ```
+  </CodeGroup>
+
+  <Warning>
+    **Production**: Always use `sslmode=verify-full` for secure connections.
+  </Warning>
+</ParamField>
+
+### WorkOS Authentication
+
+<ParamField path="WORKOS_API_KEY" type="string" required>
+  WorkOS API key for server-side authentication.
+
+  ```bash
+  WORKOS_API_KEY=sk_test_abc123...  # Development
+  WORKOS_API_KEY=sk_live_xyz789...  # Production
+  ```
+
+  Get from: [WorkOS Dashboard](https://dashboard.workos.com/) → API Keys
+</ParamField>
+
+<ParamField path="WORKOS_CLIENT_ID" type="string" required>
+  WorkOS client ID for your application.
+
+  ```bash
+  WORKOS_CLIENT_ID=client_01ABCDEF123456
+  ```
+
+  Get from: WorkOS Dashboard → Configuration → Client ID
+</ParamField>
+
+<ParamField path="WORKOS_REDIRECT_URI" type="string" required>
+  OAuth callback URL for authentication flow.
+
+  <CodeGroup>
+  ```bash Development
+  WORKOS_REDIRECT_URI=http://localhost:3003/auth/callback
+  ```
+
+  ```bash Production
+  WORKOS_REDIRECT_URI=https://api.example.com/auth/callback
+  ```
+  </CodeGroup>
+
+  <Info>
+    This URL must be added to **Redirect URIs** in your WorkOS dashboard.
+  </Info>
+</ParamField>
+
+<ParamField path="WORKOS_COOKIE_DOMAIN" type="string" required>
+  Domain for session cookies.
+
+  <CodeGroup>
+  ```bash Development
+  WORKOS_COOKIE_DOMAIN=localhost
+  ```
+
+  ```bash Production
+  WORKOS_COOKIE_DOMAIN=example.com
+  ```
+  </CodeGroup>
+</ParamField>
+
+<ParamField path="WORKOS_WEBHOOK_SECRET" type="string" required>
+  Secret for verifying WorkOS webhook signatures.
+
+  ```bash
+  WORKOS_WEBHOOK_SECRET=whs_abc123...
+  ```
+
+  Get from: WorkOS Dashboard → Webhooks → Webhook Secret
+</ParamField>
+
+### S3-Compatible Storage
+
+<ParamField path="S3_BUCKET" type="string" required>
+  S3 bucket name for file uploads (works with Cloudflare R2, AWS S3, MinIO).
+
+  <CodeGroup>
+  ```bash Development (MinIO)
+  S3_BUCKET=hazel
+  ```
+
+  ```bash Production (Cloudflare R2)
+  S3_BUCKET=hazel-production
+  ```
+  </CodeGroup>
+</ParamField>
+
+<ParamField path="S3_ENDPOINT" type="string" required>
+  S3 API endpoint URL.
+
+  <CodeGroup>
+  ```bash Development (MinIO)
+  S3_ENDPOINT=http://localhost:9000
+  ```
+
+  ```bash Production (Cloudflare R2)
+  S3_ENDPOINT=https://abc123.r2.cloudflarestorage.com
+  ```
+
+  ```bash AWS S3
+  S3_ENDPOINT=https://s3.us-east-1.amazonaws.com
+  ```
+  </CodeGroup>
+</ParamField>
+
+<ParamField path="S3_ACCESS_KEY_ID" type="string" required>
+  S3 access key ID.
+
+  ```bash
+  S3_ACCESS_KEY_ID=your_access_key_id
+  ```
+
+  <Note>
+    Bun automatically reads `S3_*` variables. `AWS_*` variables work as fallback.
+  </Note>
+</ParamField>
+
+<ParamField path="S3_SECRET_ACCESS_KEY" type="string" required>
+  S3 secret access key.
+
+  ```bash
+  S3_SECRET_ACCESS_KEY=your_secret_access_key
+  ```
+</ParamField>
+
+### Service URLs
+
+<ParamField path="CLUSTER_URL" type="string" required>
+  URL of the Effect Cluster service for background workflows.
+
+  <CodeGroup>
+  ```bash Development
+  CLUSTER_URL=http://localhost:3020
+  ```
+
+  ```bash Production
+  CLUSTER_URL=https://cluster.example.com
+  ```
+  </CodeGroup>
+</ParamField>
+
+<ParamField path="ELECTRIC_URL" type="string" required>
+  URL of the Electric SQL proxy for real-time sync.
+
+  <CodeGroup>
+  ```bash Development
+  ELECTRIC_URL=http://localhost:5133
+  ```
+
+  ```bash Production
+  ELECTRIC_URL=https://electric.example.com
+  ```
+  </CodeGroup>
+</ParamField>
+
+<ParamField path="API_BASE_URL" type="string" required>
+  Public URL of the backend API.
+
+  <CodeGroup>
+  ```bash Development
+  API_BASE_URL=http://localhost:3003
+  ```
+
+  ```bash Production
+  API_BASE_URL=https://api.example.com
+  ```
+  </CodeGroup>
+</ParamField>
+
+<ParamField path="FRONTEND_URL" type="string" required>
+  URL of the frontend application (for auth redirects).
+
+  <CodeGroup>
+  ```bash Development
+  FRONTEND_URL=http://localhost:3000
+  ```
+
+  ```bash Production
+  FRONTEND_URL=https://app.example.com
+  ```
+  </CodeGroup>
+</ParamField>
+
+### Redis
+
+<ParamField path="REDIS_URL" type="string" required>
+  Redis connection URL for rate limiting and caching.
+
+  <CodeGroup>
+  ```bash Development
+  REDIS_URL=redis://localhost:6380
+  ```
+
+  ```bash Production
+  REDIS_URL=redis://redis.example.com:6379
+  ```
+
+  ```bash With Auth
+  REDIS_URL=redis://:password@redis.example.com:6379
+  ```
+  </CodeGroup>
+</ParamField>
+
+### Integrations (Optional)
+
+<ParamField path="LINEAR_CLIENT_ID" type="string">
+  Linear OAuth client ID for Linear integration.
+
+  ```bash
+  LINEAR_CLIENT_ID=your_linear_client_id
+  ```
+</ParamField>
+
+<ParamField path="LINEAR_CLIENT_SECRET" type="string">
+  Linear OAuth client secret.
+
+  ```bash
+  LINEAR_CLIENT_SECRET=your_linear_client_secret
+  ```
+</ParamField>
+
+<ParamField path="LINEAR_REDIRECT_URI" type="string">
+  Linear OAuth callback URL.
+
+  ```bash
+  LINEAR_REDIRECT_URI=http://localhost:3003/integrations/linear/callback
+  ```
+</ParamField>
+
+<ParamField path="DISCORD_CLIENT_ID" type="string">
+  Discord bot client ID.
+
+  ```bash
+  DISCORD_CLIENT_ID=your_discord_client_id
+  ```
+</ParamField>
+
+<ParamField path="DISCORD_CLIENT_SECRET" type="string">
+  Discord bot client secret.
+
+  ```bash
+  DISCORD_CLIENT_SECRET=your_discord_client_secret
+  ```
+</ParamField>
+
+<ParamField path="DISCORD_BOT_TOKEN" type="string">
+  Discord bot token.
+
+  ```bash
+  DISCORD_BOT_TOKEN=your_discord_bot_token
+  ```
+</ParamField>
+
+<ParamField path="DISCORD_GATEWAY_ENABLED" type="boolean" default="false">
+  Enable Discord gateway connection.
+
+  ```bash
+  DISCORD_GATEWAY_ENABLED=true
+  ```
+</ParamField>
+
+<ParamField path="DISCORD_GATEWAY_INTENTS" type="number" default="34305">
+  Discord gateway intents bitmask.
+
+  ```bash
+  DISCORD_GATEWAY_INTENTS=34305
+  ```
+</ParamField>
+
+### Observability (Optional)
+
+<ParamField path="OTLP_ENDPOINT" type="string">
+  OpenTelemetry Protocol endpoint for traces.
+
+  ```bash
+  OTLP_ENDPOINT=http://localhost:4318/v1/traces
+  ```
+
+  Supported backends:
+  - Honeycomb
+  - Datadog
+  - Grafana Tempo
+  - Jaeger
+</ParamField>
+
+## Web (Frontend) Variables
+
+Configuration for the React frontend application.
+
+<Note>
+  All frontend variables are prefixed with `VITE_` to be included in the build.
+</Note>
+
+### Backend URLs
+
+<ParamField path="VITE_BACKEND_URL" type="string" required>
+  URL of the backend API server.
+
+  <CodeGroup>
+  ```bash Development
+  VITE_BACKEND_URL=http://localhost:3003
+  ```
+
+  ```bash Production
+  VITE_BACKEND_URL=https://api.example.com
+  ```
+  </CodeGroup>
+</ParamField>
+
+<ParamField path="VITE_CLUSTER_URL" type="string" required>
+  URL of the cluster service.
+
+  <CodeGroup>
+  ```bash Development
+  VITE_CLUSTER_URL=http://localhost:3020
+  ```
+
+  ```bash Production
+  VITE_CLUSTER_URL=https://cluster.example.com
+  ```
+  </CodeGroup>
+</ParamField>
+
+### WorkOS
+
+<ParamField path="VITE_WORKOS_CLIENT_ID" type="string" required>
+  WorkOS client ID (same as backend).
+
+  ```bash
+  VITE_WORKOS_CLIENT_ID=client_01ABCDEF123456
+  ```
+</ParamField>
+
+<ParamField path="VITE_WORKOS_REDIRECT_URI" type="string" required>
+  Frontend OAuth callback URL.
+
+  <CodeGroup>
+  ```bash Development
+  VITE_WORKOS_REDIRECT_URI=http://localhost:5173/auth/callback
+  ```
+
+  ```bash Production
+  VITE_WORKOS_REDIRECT_URI=https://app.example.com/auth/callback
+  ```
+  </CodeGroup>
+
+  <Warning>
+    This is **different** from the backend redirect URI. The frontend callback receives the code and exchanges it via the backend.
+  </Warning>
+</ParamField>
+
+### Electric SQL
+
+<ParamField path="VITE_ELECTRIC_URL" type="string" required>
+  Electric SQL proxy URL for real-time sync.
+
+  <CodeGroup>
+  ```bash Development (via Cloudflare Worker)
+  VITE_ELECTRIC_URL=http://localhost:8787/v1/shape
+  ```
+
+  ```bash Production
+  VITE_ELECTRIC_URL=https://electric-proxy.example.workers.dev/v1/shape
+  ```
+
+  ```bash Direct Electric (not recommended)
+  VITE_ELECTRIC_URL=http://localhost:3333/v1/shape
+  ```
+  </CodeGroup>
+
+  <Info>
+    The Electric proxy adds authentication and caching. Using the proxy is recommended over direct Electric connection.
+  </Info>
+</ParamField>
+
+### CDN
+
+<ParamField path="VITE_R2_PUBLIC_URL" type="string" required>
+  Public CDN URL for uploaded files.
+
+  <CodeGroup>
+  ```bash Development (MinIO)
+  VITE_R2_PUBLIC_URL=http://localhost:9000/hazel
+  ```
+
+  ```bash Production (Cloudflare R2 + CDN)
+  VITE_R2_PUBLIC_URL=https://cdn.example.com
+  ```
+  </CodeGroup>
+</ParamField>
+
+## Cluster Variables
+
+Configuration for the Effect Cluster workflow service.
+
+### Database
+
+<ParamField path="DATABASE_URL" type="string" required>
+  PostgreSQL connection string (same as backend).
+
+  ```bash
+  DATABASE_URL=postgresql://user:password@localhost:5432/app
+  ```
+</ParamField>
+
+<ParamField path="EFFECT_DATABASE_URL" type="string" required>
+  Dedicated database for Effect Cluster persistence.
+
+  ```bash
+  EFFECT_DATABASE_URL=postgresql://user:password@localhost:5432/cluster
+  ```
+
+  <Info>
+    The cluster service uses a **separate database** for workflow state isolation.
+  </Info>
+</ParamField>
+
+## Electric Proxy Variables
+
+Configuration for the Cloudflare Worker proxy.
+
+<ParamField path="PORT" type="number" default="8184">
+  Server port for local development.
+
+  ```bash
+  PORT=8184
+  ```
+</ParamField>
+
+<ParamField path="DATABASE_URL" type="string" required>
+  PostgreSQL connection string.
+
+  ```bash
+  DATABASE_URL=postgresql://user:password@localhost:5432/app
+  ```
+</ParamField>
+
+<ParamField path="IS_DEV" type="boolean" default="false">
+  Development mode flag.
+
+  ```bash
+  IS_DEV=true
+  ```
+</ParamField>
+
+<ParamField path="ELECTRIC_URL" type="string" required>
+  Electric SQL service URL.
+
+  <CodeGroup>
+  ```bash Development
+  ELECTRIC_URL=http://localhost:3333
+  ```
+
+  ```bash Production (Electric Cloud)
+  ELECTRIC_URL=https://api.electric-sql.cloud
+  ```
+  </CodeGroup>
+</ParamField>
+
+<ParamField path="ELECTRIC_SOURCE_ID" type="string">
+  Electric Cloud source ID (only for Electric Cloud).
+
+  ```bash
+  ELECTRIC_SOURCE_ID=your_source_id
+  ```
+</ParamField>
+
+<ParamField path="ELECTRIC_SOURCE_SECRET" type="string">
+  Electric Cloud source secret.
+
+  ```bash
+  ELECTRIC_SOURCE_SECRET=your_source_secret
+  ```
+</ParamField>
+
+<ParamField path="WORKOS_API_KEY" type="string" required>
+  WorkOS API key for authentication.
+
+  ```bash
+  WORKOS_API_KEY=sk_test_...
+  ```
+</ParamField>
+
+<ParamField path="WORKOS_CLIENT_ID" type="string" required>
+  WorkOS client ID.
+
+  ```bash
+  WORKOS_CLIENT_ID=client_...
+  ```
+</ParamField>
+
+<ParamField path="ALLOWED_ORIGIN" type="string" required>
+  CORS allowed origin.
+
+  <CodeGroup>
+  ```bash Development
+  ALLOWED_ORIGIN=http://localhost:3000
+  ```
+
+  ```bash Production
+  ALLOWED_ORIGIN=https://app.example.com
+  ```
+  </CodeGroup>
+</ParamField>
+
+<ParamField path="OTLP_ENDPOINT" type="string">
+  OpenTelemetry endpoint for observability.
+
+  ```bash
+  OTLP_ENDPOINT=http://localhost:4318/v1/traces
+  ```
+</ParamField>
+
+## Database Package Variables
+
+Configuration for Drizzle ORM migrations.
+
+<ParamField path="DATABASE_URL" type="string" required>
+  PostgreSQL connection string for migrations.
+
+  ```bash
+  DATABASE_URL=postgresql://user:password@localhost:5432/app
+  ```
+</ParamField>
+
+## Environment File Templates
+
+### Backend Template
+
+```bash title="apps/backend/.env.example"
+# Database
+DATABASE_URL=postgresql://user:password@localhost:5432/app
+
+# Cluster
+CLUSTER_URL=http://localhost:3020
+
+# WorkOS
+WORKOS_API_KEY=sk_test_your_api_key
+WORKOS_CLIENT_ID=client_your_client_id
+WORKOS_REDIRECT_URI=http://localhost:3003/auth/callback
+WORKOS_COOKIE_DOMAIN=localhost
+WORKOS_WEBHOOK_SECRET=your_webhook_secret
+
+# S3 Storage
+S3_BUCKET=hazel
+S3_ENDPOINT=http://localhost:9000
+S3_ACCESS_KEY_ID=minioadmin
+S3_SECRET_ACCESS_KEY=minioadmin
+
+# Electric
+ELECTRIC_URL=http://localhost:5133
+
+# Redis
+REDIS_URL=redis://localhost:6380
+
+# URLs
+API_BASE_URL=http://localhost:3003
+FRONTEND_URL=http://localhost:3000
+```
+
+### Web Template
+
+```bash title="apps/web/.env.example"
+# Backend
+VITE_BACKEND_URL=http://localhost:3003
+VITE_CLUSTER_URL=http://localhost:3020
+
+# WorkOS
+VITE_WORKOS_CLIENT_ID=client_your_client_id
+VITE_WORKOS_REDIRECT_URI=http://localhost:5173/auth/callback
+
+# Electric
+VITE_ELECTRIC_URL=http://localhost:8787/v1/shape
+
+# CDN
+VITE_R2_PUBLIC_URL=http://localhost:9000/hazel
+```
+
+### Cluster Template
+
+```bash title="apps/cluster/.env.example"
+# Database
+DATABASE_URL=postgresql://user:password@localhost:5432/app
+EFFECT_DATABASE_URL=postgresql://user:password@localhost:5432/cluster
+```
+
+## Setup Wizard
+
+The setup wizard automatically generates all `.env` files:
+
+```bash
+bun run setup
+```
+
+This interactive CLI will:
+1. Start Docker services
+2. Validate your environment
+3. Configure WorkOS authentication
+4. Generate secrets
+5. Create all `.env` files
+6. Initialize the database
+
+<Info>
+  The setup wizard is the **recommended** way to configure environment variables for development.
+</Info>
+
+## Security Best Practices
+
+<Warning>
+  **Never commit `.env` files to git.** They are included in `.gitignore` by default.
+</Warning>
+
+### Secret Management
+
+<Steps>
+  <Step title="Use different keys per environment">
+    Development and production should have completely different secrets.
+  </Step>
+
+  <Step title="Rotate secrets regularly">
+    Rotate API keys, database passwords, and other secrets every 90 days.
+  </Step>
+
+  <Step title="Use secret management services">
+    For production, consider:
+    - AWS Secrets Manager
+    - HashiCorp Vault
+    - Doppler
+    - 1Password Secrets Automation
+  </Step>
+
+  <Step title="Restrict access">
+    Limit who can access production secrets.
+  </Step>
+</Steps>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Getting Started" icon="play" href="/getting-started">
+    Set up your development environment
+  </Card>
+  <Card title="Deployment" icon="rocket" href="/guides/deployment">
+    Deploy to production
+  </Card>
+  <Card title="WorkOS Configuration" icon="wrench" href="/guides/workos-configuration">
+    Configure authentication
+  </Card>
+  <Card title="Database Setup" icon="database" href="/guides/database-setup">
+    Set up PostgreSQL
+  </Card>
+</CardGroup>

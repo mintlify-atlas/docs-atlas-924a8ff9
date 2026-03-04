@@ -1,0 +1,601 @@
+---
+title: WorkOS Configuration
+description: Step-by-step guide to setting up WorkOS AuthKit for Hazel Chat
+icon: wrench
+---
+
+This guide walks you through the complete WorkOS setup process, from creating an account to configuring authentication for Hazel Chat.
+
+## Prerequisites
+
+Before you begin, ensure you have:
+
+- A [WorkOS account](https://workos.com/) (free for development)
+- Access to the [WorkOS Dashboard](https://dashboard.workos.com/)
+- Hazel Chat source code cloned locally
+
+## Overview
+
+WorkOS AuthKit provides enterprise-ready authentication with:
+
+- **Multi-provider auth** - Email/password, Google, GitHub, Microsoft, and more
+- **Enterprise SSO** - SAML and OIDC support
+- **Organization management** - Multi-tenant with role-based access
+- **Session management** - Secure JWT tokens
+- **MFA support** - Two-factor authentication
+
+## Step-by-Step Setup
+
+### 1. Create a WorkOS Account
+
+<Steps>
+  <Step title="Sign up for WorkOS">
+    Go to [workos.com](https://workos.com/) and create a free account.
+
+    <Info>
+      WorkOS offers a **free tier** for development with unlimited users.
+    </Info>
+  </Step>
+
+  <Step title="Create your organization">
+    After signing up, create your organization in the WorkOS dashboard.
+  </Step>
+
+  <Step title="Access your dashboard">
+    Navigate to [dashboard.workos.com](https://dashboard.workos.com/) to configure your application.
+  </Step>
+</Steps>
+
+### 2. Enable AuthKit
+
+AuthKit is WorkOS's managed authentication solution.
+
+<Steps>
+  <Step title="Navigate to AuthKit">
+    In the WorkOS dashboard, go to **Authentication** → **AuthKit**.
+  </Step>
+
+  <Step title="Enable AuthKit">
+    Click **"Get started"** or **"Enable AuthKit"** if not already enabled.
+  </Step>
+
+  <Step title="Configure your app">
+    Set your application name and branding:
+
+    - **App Name**: Hazel Chat (or your preferred name)
+    - **Logo**: Optional - upload your logo
+    - **Primary Color**: Optional - customize the auth UI
+  </Step>
+
+  <Step title="Enable sign-in methods">
+    Choose at least one authentication method:
+
+    **Recommended for development:**
+    - ✅ Email + Password
+    - ✅ Google OAuth
+    - ✅ GitHub OAuth
+
+    **Optional:**
+    - Microsoft
+    - Magic Links
+    - Apple
+    - LinkedIn
+  </Step>
+</Steps>
+
+<Note>
+  You can enable additional sign-in methods later. Email + Password is sufficient to get started.
+</Note>
+
+### 3. Configure Redirect URIs
+
+Redirect URIs tell WorkOS where to send users after authentication.
+
+<Steps>
+  <Step title="Navigate to Redirects">
+    In the WorkOS dashboard, go to **Redirects** → **Edit redirect URIs**.
+  </Step>
+
+  <Step title="Add development redirect URI">
+    Add the backend callback URL for local development:
+
+    ```
+    http://localhost:3003/auth/callback
+    ```
+
+    <Warning>
+      This is the **backend** redirect URI, not the frontend URL.
+    </Warning>
+  </Step>
+
+  <Step title="Add production redirect URI (when ready)">
+    When deploying to production, add your production callback URL:
+
+    ```
+    https://api.example.com/auth/callback
+    ```
+
+    Replace `api.example.com` with your actual backend domain.
+  </Step>
+
+  <Step title="Save changes">
+    Click **Save** to apply the redirect URI configuration.
+  </Step>
+</Steps>
+
+### 4. Create Required Roles
+
+Hazel Chat uses custom roles for organization access control.
+
+<Steps>
+  <Step title="Navigate to Roles">
+    In the WorkOS dashboard, go to **Roles**.
+  </Step>
+
+  <Step title="Create Owner role">
+    Click **"Create Role"** and configure:
+
+    - **Role Slug**: `owner`
+    - **Name**: Owner
+    - **Description**: Full access, can delete organization
+
+    Click **Create**.
+  </Step>
+
+  <Step title="Create Admin role">
+    Create another role:
+
+    - **Role Slug**: `admin`
+    - **Name**: Admin
+    - **Description**: Can manage members and settings
+
+    Click **Create**.
+  </Step>
+
+  <Step title="Create Member role">
+    Create the default role:
+
+    - **Role Slug**: `member`
+    - **Name**: Member
+    - **Description**: Standard access (default)
+
+    Click **Create**.
+  </Step>
+</Steps>
+
+<Info>
+  These role slugs (`owner`, `admin`, `member`) are **hardcoded** in Hazel Chat. They must match exactly.
+</Info>
+
+### Role Permissions Matrix
+
+| Role | Delete Org | Manage Members | Manage Settings | Channel Access |
+|------|-----------|----------------|-----------------|----------------|
+| **Owner** | ✅ | ✅ | ✅ | ✅ |
+| **Admin** | ❌ | ✅ | ✅ | ✅ |
+| **Member** | ❌ | ❌ | ❌ | ✅ |
+
+### 5. Get API Credentials
+
+Retrieve your API credentials from the WorkOS dashboard.
+
+<Steps>
+  <Step title="Get API Key">
+    Go to **API Keys** in the dashboard.
+
+    Copy your **API Key**:
+    - Development: `sk_test_...`
+    - Production: `sk_live_...`
+
+    <Warning>
+      **Never commit API keys to git.** Store them in `.env` files only.
+    </Warning>
+  </Step>
+
+  <Step title="Get Client ID">
+    In the **Configuration** section, copy your **Client ID**:
+
+    ```
+    client_01ABCDEF123456
+    ```
+  </Step>
+
+  <Step title="Get Webhook Secret (optional)">
+    If using webhooks, go to **Webhooks** and copy the **Webhook Secret**:
+
+    ```
+    whs_abc123...
+    ```
+  </Step>
+</Steps>
+
+### 6. Configure Environment Variables
+
+Add WorkOS credentials to your environment files.
+
+<CodeGroup>
+```bash apps/backend/.env
+# WorkOS Authentication
+WORKOS_API_KEY=sk_test_your_api_key_here
+WORKOS_CLIENT_ID=client_01ABCDEF123456
+WORKOS_REDIRECT_URI=http://localhost:3003/auth/callback
+WORKOS_COOKIE_DOMAIN=localhost
+WORKOS_WEBHOOK_SECRET=whs_your_webhook_secret
+```
+
+```bash apps/web/.env
+# WorkOS Client ID (frontend)
+VITE_WORKOS_CLIENT_ID=client_01ABCDEF123456
+VITE_WORKOS_REDIRECT_URI=http://localhost:5173/auth/callback
+```
+
+```bash apps/electric-proxy/.env
+# WorkOS for proxy authentication
+WORKOS_API_KEY=sk_test_your_api_key_here
+WORKOS_CLIENT_ID=client_01ABCDEF123456
+```
+</CodeGroup>
+
+<Info>
+  The frontend redirect URI is **different** from the backend. The frontend receives the code and exchanges it via the backend.
+</Info>
+
+### 7. Test Authentication
+
+Verify your WorkOS configuration is working.
+
+<Steps>
+  <Step title="Start development services">
+    ```bash
+    # Start Docker services
+    docker compose up -d
+
+    # Start application
+    bun run dev
+    ```
+  </Step>
+
+  <Step title="Open the application">
+    Navigate to [http://localhost:3000](http://localhost:3000)
+  </Step>
+
+  <Step title="Click Sign In">
+    Click the **Sign In** button to start the authentication flow.
+  </Step>
+
+  <Step title="Complete authentication">
+    Sign up with email or OAuth provider.
+
+    You should be redirected back to Hazel Chat after successful authentication.
+  </Step>
+
+  <Step title="Verify user creation">
+    Check that the user was created in your database:
+
+    ```bash
+    cd packages/db
+    bun run db:studio
+    ```
+
+    Open http://localhost:4983 and check the `users` table.
+  </Step>
+</Steps>
+
+## Production Configuration
+
+### Update Redirect URIs
+
+When deploying to production:
+
+<Steps>
+  <Step title="Add production redirect URI">
+    In WorkOS dashboard → **Redirects**, add:
+
+    ```
+    https://api.example.com/auth/callback
+    ```
+  </Step>
+
+  <Step title="Update environment variables">
+    ```bash title="apps/backend/.env.production"
+    WORKOS_API_KEY=sk_live_your_production_key
+    WORKOS_CLIENT_ID=client_01ABCDEF123456
+    WORKOS_REDIRECT_URI=https://api.example.com/auth/callback
+    WORKOS_COOKIE_DOMAIN=example.com
+    ```
+  </Step>
+
+  <Step title="Enable production API key">
+    In WorkOS dashboard → **API Keys**, switch to using the **Production API Key** (`sk_live_...`).
+  </Step>
+</Steps>
+
+### Configure Custom Domain (Optional)
+
+Customize the authentication URL:
+
+<Steps>
+  <Step title="Go to Custom Domains">
+    In WorkOS dashboard → **Custom Domains**
+  </Step>
+
+  <Step title="Add your domain">
+    Configure `auth.example.com` to brand the authentication flow.
+  </Step>
+
+  <Step title="Verify DNS">
+    Add the required DNS records to verify ownership.
+  </Step>
+</Steps>
+
+## Webhooks (Optional)
+
+Set up webhooks to receive events from WorkOS.
+
+<Steps>
+  <Step title="Navigate to Webhooks">
+    Go to **Webhooks** in the WorkOS dashboard.
+  </Step>
+
+  <Step title="Add webhook endpoint">
+    Configure your webhook URL:
+
+    ```
+    https://api.example.com/webhooks/workos
+    ```
+  </Step>
+
+  <Step title="Select events">
+    Subscribe to relevant events:
+    - `user.created`
+    - `user.updated`
+    - `user.deleted`
+    - `organization_membership.created`
+    - `organization_membership.deleted`
+  </Step>
+
+  <Step title="Copy webhook secret">
+    Save the webhook secret to your environment:
+
+    ```bash
+    WORKOS_WEBHOOK_SECRET=whs_abc123...
+    ```
+  </Step>
+</Steps>
+
+## Multi-Organization Setup
+
+### Creating Organizations
+
+Users can belong to multiple organizations:
+
+<Steps>
+  <Step title="Create organization via API">
+    Organizations are typically created when users sign up:
+
+    ```typescript
+    const org = await workos.organizations.createOrganization({
+      name: "ACME Corp",
+      externalId: uuid(), // Your internal org ID
+      allowProfilesOutsideOrganization: false
+    })
+    ```
+  </Step>
+
+  <Step title="Add members">
+    Add users to organizations with roles:
+
+    ```typescript
+    await workos.organizationMemberships.createOrganizationMembership({
+      organizationId: org.id,
+      userId: user.id,
+      roleSlug: "member"
+    })
+    ```
+  </Step>
+</Steps>
+
+### Organization Switching
+
+Users can switch between organizations:
+
+```typescript
+// Login with specific organization
+window.location.href = `${BACKEND_URL}/auth/login?organizationId=${orgId}`
+```
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Redirect URI mismatch error">
+    **Error**: `redirect_uri_mismatch`
+
+    **Solution**: Verify the redirect URI in your `.env` file matches exactly what's configured in WorkOS dashboard:
+
+    ```bash
+    # Check backend redirect URI
+    echo $WORKOS_REDIRECT_URI
+
+    # Should match WorkOS dashboard → Redirects
+    http://localhost:3003/auth/callback
+    ```
+  </Accordion>
+
+  <Accordion title="Invalid client ID error">
+    **Error**: `invalid_client`
+
+    **Solution**: Verify your `WORKOS_CLIENT_ID` is correct:
+
+    ```bash
+    echo $WORKOS_CLIENT_ID
+    # Should start with: client_
+    ```
+
+    Copy the correct value from WorkOS dashboard → Configuration.
+  </Accordion>
+
+  <Accordion title="API key authentication fails">
+    **Error**: `Unauthorized` or `Invalid API key`
+
+    **Solution**: Check you're using the correct API key for your environment:
+
+    ```bash
+    # Development
+    WORKOS_API_KEY=sk_test_...
+
+    # Production
+    WORKOS_API_KEY=sk_live_...
+    ```
+
+    Never mix development and production keys.
+  </Accordion>
+
+  <Accordion title="Role not found error">
+    **Error**: `Role 'owner' not found`
+
+    **Solution**: Create all three required roles in WorkOS dashboard → Roles:
+    - `owner`
+    - `admin`
+    - `member`
+
+    The role **slug** must match exactly (case-sensitive).
+  </Accordion>
+
+  <Accordion title="User not syncing to database">
+    **Error**: User authenticates but doesn't appear in database
+
+    **Solution**: Check backend logs for errors:
+
+    ```bash
+    # View backend logs
+    cd apps/backend
+    bun run dev
+    ```
+
+    Verify `DATABASE_URL` is correct and database is accessible.
+  </Accordion>
+</AccordionGroup>
+
+## Security Best Practices
+
+<Warning>
+  Follow these security guidelines in production:
+</Warning>
+
+### API Keys
+
+<Steps>
+  <Step title="Never commit API keys">
+    API keys should **never** be committed to git. Always use `.env` files.
+
+    ```bash
+    # ✅ Correct
+    WORKOS_API_KEY=sk_test_...
+
+    # ❌ Wrong - hardcoded in source
+    const apiKey = "sk_test_abc123"
+    ```
+  </Step>
+
+  <Step title="Use different keys per environment">
+    Development and production must use separate API keys:
+
+    - Development: `sk_test_...`
+    - Production: `sk_live_...`
+  </Step>
+
+  <Step title="Rotate keys regularly">
+    Rotate API keys every 90 days for security.
+  </Step>
+
+  <Step title="Restrict key access">
+    Limit who can access production API keys.
+  </Step>
+</Steps>
+
+### Redirect URIs
+
+<Steps>
+  <Step title="Use HTTPS in production">
+    ```bash
+    # ✅ Production
+    WORKOS_REDIRECT_URI=https://api.example.com/auth/callback
+
+    # ❌ Production (insecure)
+    WORKOS_REDIRECT_URI=http://api.example.com/auth/callback
+    ```
+  </Step>
+
+  <Step title="Whitelist exact URIs">
+    Only add the specific redirect URIs you need. Don't use wildcards.
+  </Step>
+
+  <Step title="Validate state parameter">
+    The state parameter is validated automatically by Hazel Chat to prevent CSRF.
+  </Step>
+</Steps>
+
+### Cookie Security
+
+```bash
+# Development
+WORKOS_COOKIE_DOMAIN=localhost
+
+# Production
+WORKOS_COOKIE_DOMAIN=example.com  # Your root domain
+```
+
+## Advanced Configuration
+
+### Custom Email Templates
+
+Customize authentication emails:
+
+1. Go to WorkOS dashboard → **Email Templates**
+2. Edit templates for:
+   - Welcome emails
+   - Password reset
+   - Email verification
+   - Magic links
+
+### MFA Setup
+
+Enable multi-factor authentication:
+
+1. Go to **Authentication** → **MFA**
+2. Enable MFA options:
+   - SMS
+   - Authenticator apps (TOTP)
+   - WebAuthn
+
+### Session Duration
+
+Configure session expiration:
+
+1. Go to **Authentication** → **Session Settings**
+2. Set session duration (default: 7 days)
+3. Configure refresh token expiration
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Authentication Guide" icon="shield-check" href="/guides/authentication">
+    Learn about the authentication flow
+  </Card>
+  <Card title="Environment Variables" icon="terminal" href="/guides/environment-variables">
+    Complete configuration reference
+  </Card>
+  <Card title="Deployment" icon="rocket" href="/guides/deployment">
+    Deploy to production
+  </Card>
+  <Card title="Database Setup" icon="database" href="/guides/database-setup">
+    Set up PostgreSQL
+  </Card>
+</CardGroup>
+
+## Additional Resources
+
+- [WorkOS Documentation](https://workos.com/docs)
+- [WorkOS AuthKit Guide](https://workos.com/docs/user-management/authkit)
+- [WorkOS API Reference](https://workos.com/docs/reference)
+- [WorkOS Support](https://support.workos.com/)

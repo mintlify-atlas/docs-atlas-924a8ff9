@@ -1,0 +1,515 @@
+---
+title: Installation
+description: Comprehensive setup and configuration guide for Hazel Chat
+---
+
+This guide covers everything you need to install and configure Hazel Chat for local development or production deployment.
+
+## Prerequisites
+
+### Required software
+
+<CardGroup cols={2}>
+  <Card title="Bun v1.2.14+" icon="gear">
+    JavaScript runtime with built-in package manager, test runner, and bundler.
+    
+    [Download Bun](https://bun.sh/)
+  </Card>
+  
+  <Card title="Docker" icon="docker">
+    Container platform for running PostgreSQL, Redis, Electric SQL, and MinIO.
+    
+    [Download Docker](https://docker.com/)
+  </Card>
+  
+  <Card title="Git" icon="git">
+    Version control for cloning the repository.
+    
+    [Download Git](https://git-scm.com/)
+  </Card>
+  
+  <Card title="WorkOS Account" icon="key">
+    Authentication provider for user management and SSO.
+    
+    [Sign up for WorkOS](https://workos.com/)
+  </Card>
+</CardGroup>
+
+### System requirements
+
+- **OS**: macOS, Linux, or Windows (with WSL2)
+- **RAM**: 4GB minimum, 8GB recommended
+- **Disk**: 2GB free space for dependencies and Docker images
+- **Node.js**: Not required (Bun is a replacement)
+
+<Note>
+  Hazel uses Bun instead of Node.js. If you have Node.js installed, it won't interfere, but Bun is required for running the application.
+</Note>
+
+## Installation steps
+
+### 1. Install Bun
+
+Bun v1.2.14 or later is required for [workspace catalogs](https://bun.sh/blog/release-notes/bun-v1.2.14):
+
+<CodeGroup>
+```bash macOS/Linux
+curl -fsSL https://bun.sh/install | bash
+```
+
+```bash Windows (PowerShell)
+powershell -c "irm bun.sh/install.ps1 | iex"
+```
+</CodeGroup>
+
+Verify the installation:
+
+```bash
+bun --version  # Should be 1.2.14 or higher
+```
+
+### 2. Install Docker
+
+Docker is required for running local services:
+
+- **macOS**: [Docker Desktop for Mac](https://docs.docker.com/desktop/install/mac-install/)
+- **Windows**: [Docker Desktop for Windows](https://docs.docker.com/desktop/install/windows-install/)
+- **Linux**: [Docker Engine](https://docs.docker.com/engine/install/)
+
+Verify Docker is running:
+
+```bash
+docker --version
+docker ps  # Should show running containers (or empty list)
+```
+
+### 3. Clone the repository
+
+<CodeGroup>
+```bash HTTPS
+git clone https://github.com/your-org/hazel-chat.git
+cd hazel-chat
+```
+
+```bash SSH
+git clone git@github.com:your-org/hazel-chat.git
+cd hazel-chat
+```
+</CodeGroup>
+
+### 4. Install dependencies
+
+Install all workspace dependencies:
+
+```bash
+bun install
+```
+
+This installs:
+- All app dependencies (`apps/web`, `apps/backend`, `apps/cluster`)
+- All package dependencies (`packages/db`, `packages/domain`, etc.)
+- Development tools (Turborepo, Vitest, OXC)
+
+<Info>
+  The first install may take 2-3 minutes depending on your internet connection. Subsequent installs are faster thanks to Bun's caching.
+</Info>
+
+## Configuration
+
+### Setup wizard
+
+The easiest way to configure Hazel is with the interactive setup wizard:
+
+```bash
+bun run setup
+```
+
+The wizard will:
+
+1. **Start Docker services** - PostgreSQL, Redis, Electric SQL, MinIO, Sequin, Caddy
+2. **Validate environment** - Check Bun version, Docker status, and network connectivity
+3. **Configure WorkOS** - Prompt for Client ID, API Key, and Redirect URI
+4. **Generate secrets** - Create secure random secrets for encryption
+5. **Create .env files** - Generate `.env` files for all apps with proper values
+6. **Initialize database** - Run migrations and seed initial data
+
+<Warning>
+  The setup wizard will overwrite existing `.env` files. If you have custom configuration, back up your `.env` files first.
+</Warning>
+
+### Docker services
+
+Hazel uses Docker Compose to manage local services. Here's what gets started:
+
+| Service | Port | Description |
+|---------|------|-------------|
+| **PostgreSQL** | 5432 | Main database with logical replication enabled |
+| **Electric SQL** | 3333 | Real-time sync service for PostgreSQL |
+| **Redis (Sequin)** | 7378 | Cache for Sequin CDC platform |
+| **Redis (Cache)** | 6380 | Cache for Electric proxy |
+| **MinIO** | 9000, 9001 | S3-compatible object storage for file uploads |
+| **Sequin** | 7376 | Change Data Capture platform |
+| **Caddy** | 5133, 3004 | Reverse proxy for SSE and WebSocket connections |
+
+Manually manage Docker services:
+
+<CodeGroup>
+```bash Start services
+docker-compose up -d
+```
+
+```bash Stop services
+docker-compose down
+```
+
+```bash View logs
+docker-compose logs -f
+```
+
+```bash Restart a service
+docker-compose restart postgres
+```
+</CodeGroup>
+
+### WorkOS configuration
+
+WorkOS provides authentication and organization management. You'll need to configure:
+
+#### 1. Enable AuthKit
+
+1. Log in to [WorkOS Dashboard](https://dashboard.workos.com/)
+2. Navigate to **Authentication** → **AuthKit**
+3. Click **"Enable AuthKit"**
+4. Configure:
+   - **App name**: Your application name (e.g., "Hazel Chat")
+   - **Logo**: Optional branding
+   - **Sign-in methods**: Enable at least one:
+     - Email + Password (recommended for testing)
+     - Google OAuth
+     - GitHub OAuth
+     - Microsoft OAuth
+
+#### 2. Set redirect URI
+
+1. Go to **Redirects** → **Edit redirect URIs**
+2. Add the callback URL for local development:
+
+   ```
+   http://localhost:3003/auth/callback
+   ```
+
+3. For production, add your production URL:
+
+   ```
+   https://api.yourdomain.com/auth/callback
+   ```
+
+#### 3. Create roles
+
+Hazel uses custom roles for organization members:
+
+1. Navigate to **Roles**
+2. Create three roles with these exact slugs:
+
+| Role Slug | Display Name | Description |
+|-----------|--------------|-------------|
+| `owner` | Owner | Full control, can delete organization |
+| `admin` | Admin | Can manage members and settings |
+| `member` | Member | Standard access (default for new members) |
+
+<Warning>
+  The role slugs must match exactly (`owner`, `admin`, `member`). The backend code expects these specific values.
+</Warning>
+
+#### 4. Get your credentials
+
+You'll need these values from WorkOS:
+
+1. **Client ID**: Found in **API Keys** section
+2. **API Key**: Click "Create Key" if you don't have one
+3. **Webhook Secret**: Found in **Webhooks** section (create an endpoint if needed)
+
+The setup wizard will prompt for these values.
+
+### Environment variables
+
+If you prefer manual configuration instead of the setup wizard, create these `.env` files:
+
+#### apps/backend/.env
+
+```bash apps/backend/.env
+# Database
+DATABASE_URL="postgresql://user:password@localhost:5432/app"
+EFFECT_DATABASE_URL="postgresql://user:password@localhost:5432/app"
+
+# WorkOS
+WORKOS_API_KEY="sk_live_..."
+WORKOS_CLIENT_ID="client_..."
+WORKOS_WEBHOOK_SECRET="whsec_..."
+WORKOS_REDIRECT_URI="http://localhost:3003/auth/callback"
+WORKOS_COOKIE_DOMAIN="localhost"
+
+# Backend
+PORT=3003
+BACKEND_URL="http://localhost:3003"
+FRONTEND_URL="http://localhost:3000"
+ALLOWED_ORIGIN="http://localhost:3000"
+INTERNAL_SECRET="your-random-secret-here"
+
+# S3 Storage (MinIO)
+S3_BUCKET="hazel"
+S3_ENDPOINT="http://localhost:9000"
+S3_ACCESS_KEY_ID="minioadmin"
+S3_SECRET_ACCESS_KEY="minioadmin"
+
+# Electric SQL
+ELECTRIC_URL="http://localhost:3333"
+ELECTRIC_SOURCE_SECRET="your-electric-secret"
+ELECTRIC_SOURCE_ID="default"
+
+# Cluster
+CLUSTER_URL="http://localhost:3020"
+
+# Redis
+REDIS_URL="redis://localhost:6380"
+```
+
+#### apps/web/.env
+
+```bash apps/web/.env
+# Backend
+VITE_BACKEND_URL="http://localhost:3003"
+
+# Electric SQL
+VITE_ELECTRIC_URL="http://localhost:5133"
+
+# WorkOS
+VITE_WORKOS_CLIENT_ID="client_..."
+```
+
+#### apps/cluster/.env
+
+```bash apps/cluster/.env
+# Database
+DATABASE_URL="postgresql://user:password@localhost:5432/app"
+
+# Cluster
+PORT=3020
+LISTEN_HOST="0.0.0.0"
+LISTEN_PORT="3020"
+
+# Internal
+INTERNAL_SECRET="your-random-secret-here"  # Must match backend
+```
+
+<Tip>
+  Generate secure secrets with: `openssl rand -base64 32`
+</Tip>
+
+### Database initialization
+
+Initialize the database schema:
+
+<CodeGroup>
+```bash Using setup wizard
+bun run setup  # Automatically runs migrations
+```
+
+```bash Manual migration
+cd packages/db
+bun run db:push
+```
+</CodeGroup>
+
+This creates all tables, indexes, and constraints defined in `packages/db/src/schema/`.
+
+## Starting the application
+
+### Development mode
+
+Start all services in development mode:
+
+```bash
+bun run dev
+```
+
+This launches:
+- **Web** (port 3000): React app with Vite HMR
+- **Backend** (port 3003): Effect-TS API server with hot reload
+- **Cluster** (port 3020): Workflow service with hot reload
+
+<Info>
+  The first build takes 30-60 seconds. Subsequent hot reloads are near-instant.
+</Info>
+
+### Production mode
+
+<CodeGroup>
+```bash Build for production
+bun run build
+```
+
+```bash Start production server
+bun run start
+```
+</CodeGroup>
+
+### Individual apps
+
+Run a specific app:
+
+<CodeGroup>
+```bash Web only
+cd apps/web
+bun run dev
+```
+
+```bash Backend only
+cd apps/backend
+bun run dev
+```
+
+```bash Cluster only
+cd apps/cluster
+bun run dev
+```
+</CodeGroup>
+
+## Verification
+
+Verify your installation:
+
+### 1. Check services
+
+<CodeGroup>
+```bash Backend health
+curl http://localhost:3003/health
+# Should return: {"status":"ok"}
+```
+
+```bash Electric health
+curl http://localhost:3333/v1/health
+# Should return: {"status":"active"}
+```
+
+```bash Cluster health
+curl http://localhost:3020/health
+# Should return: {"status":"ok"}
+```
+</CodeGroup>
+
+### 2. Test authentication
+
+1. Open http://localhost:3000
+2. Click "Sign up" or "Get started"
+3. Complete the WorkOS authentication flow
+4. You should be redirected back to create an organization
+
+### 3. Send a test message
+
+1. Create an organization
+2. Send a message in the #general channel
+3. The message should appear instantly
+
+<Note>
+  If the message appears with a delay or error, check the Electric SQL and backend logs for connection issues.
+</Note>
+
+## Troubleshooting
+
+### Docker issues
+
+**Services won't start:**
+```bash
+# Check Docker is running
+docker info
+
+# View service logs
+docker-compose logs postgres
+docker-compose logs electric
+
+# Restart all services
+docker-compose down
+docker-compose up -d
+```
+
+**Port conflicts:**
+```bash
+# Check what's using a port
+lsof -i :5432  # macOS/Linux
+netstat -ano | findstr :5432  # Windows
+
+# Change the port in docker-compose.yaml
+```
+
+### Bun issues
+
+**Wrong version:**
+```bash
+# Check version
+bun --version
+
+# Update Bun
+curl -fsSL https://bun.sh/install | bash
+```
+
+**Install fails:**
+```bash
+# Clear Bun cache
+rm -rf ~/.bun/install/cache
+
+# Reinstall
+bun install --force
+```
+
+### WorkOS issues
+
+**Authentication fails:**
+- Verify redirect URI is exactly `http://localhost:3003/auth/callback`
+- Check that AuthKit is enabled
+- Confirm at least one sign-in method is active
+- Verify `.env` has correct Client ID and API Key
+
+**Role errors:**
+- Ensure all three roles exist: `owner`, `admin`, `member`
+- Check that role slugs match exactly (case-sensitive)
+
+### Database issues
+
+**Migrations fail:**
+```bash
+# Reset the database
+docker-compose down -v  # WARNING: Deletes all data
+docker-compose up -d
+cd packages/db
+bun run db:push
+```
+
+**Connection refused:**
+```bash
+# Check PostgreSQL is running
+docker-compose ps postgres
+
+# View PostgreSQL logs
+docker-compose logs postgres
+```
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Follow the quickstart guide to send your first message
+  </Card>
+  
+  <Card title="Architecture" icon="sitemap" href="/architecture/overview">
+    Learn about the system design and patterns
+  </Card>
+  
+  <Card title="Deployment Guide" icon="cloud" href="/guides/deployment">
+    Best practices and deployment workflows
+  </Card>
+  
+  <Card title="Deployment" icon="cloud" href="/deployment">
+    Deploy to production with Docker or Railway
+  </Card>
+</CardGroup>

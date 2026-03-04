@@ -1,0 +1,298 @@
+---
+title: "Channel Sections API"
+description: "Organize channels into collapsible sections"
+---
+
+## Overview
+
+The Channel Sections API allows you to create, update, and manage channel sections within your organization. Sections help organize channels into logical groups (e.g., "Engineering", "Marketing", "Support").
+
+Sections are organization-wide and visible to all members. Only organization admins/owners can manage sections.
+
+## Methods
+
+### channelSection.create
+
+Creates a new channel section in an organization. Only organization admins/owners can create sections.
+
+<ParamField path="name" type="string" required>
+  Section name (e.g., "Engineering", "Marketing")
+</ParamField>
+
+<ParamField path="organizationId" type="string" required>
+  UUID of the organization
+</ParamField>
+
+<ParamField path="order" type="number" required>
+  Display order (0-based). If set to 0, automatically assigned to end.
+</ParamField>
+
+<ParamField path="id" type="string">
+  Optional client-provided ID for optimistic updates
+</ParamField>
+
+<ResponseField name="data" type="ChannelSection">
+  <Expandable title="ChannelSection object">
+    <ResponseField name="id" type="string">
+      Section ID
+    </ResponseField>
+    <ResponseField name="name" type="string">
+      Section name
+    </ResponseField>
+    <ResponseField name="organizationId" type="string">
+      Organization ID
+    </ResponseField>
+    <ResponseField name="order" type="number">
+      Display order (0-based)
+    </ResponseField>
+    <ResponseField name="createdAt" type="string">
+      ISO 8601 timestamp
+    </ResponseField>
+    <ResponseField name="deletedAt" type="string | null">
+      ISO 8601 timestamp if soft-deleted
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="transactionId" type="string">
+  Transaction ID for optimistic updates
+</ResponseField>
+
+<CodeGroup>
+```typescript Example
+const result = await client.channelSection.create({
+  name: "Engineering",
+  organizationId: "org-123",
+  order: 0 // Auto-assigned to end
+});
+```
+
+```typescript Response
+{
+  data: {
+    id: "cs-abc123",
+    name: "Engineering",
+    organizationId: "org-123",
+    order: 0,
+    createdAt: "2024-03-15T10:00:00Z",
+    deletedAt: null
+  },
+  transactionId: "txn-xyz789"
+}
+```
+</CodeGroup>
+
+**Errors:**
+- `UnauthorizedError` - User lacks admin permission
+- `InternalServerError` - Unexpected server error
+
+---
+
+### channelSection.update
+
+Updates an existing channel section (rename, change order). Only organization admins/owners can update sections.
+
+<ParamField path="id" type="string" required>
+  Section ID to update
+</ParamField>
+
+<ParamField path="name" type="string">
+  New section name
+</ParamField>
+
+<ParamField path="order" type="number">
+  New display order
+</ParamField>
+
+<ResponseField name="data" type="ChannelSection">
+  Updated section object (see channelSection.create for structure)
+</ResponseField>
+
+<ResponseField name="transactionId" type="string">
+  Transaction ID for optimistic updates
+</ResponseField>
+
+<CodeGroup>
+```typescript Example
+const result = await client.channelSection.update({
+  id: "cs-abc123",
+  name: "Engineering Team"
+});
+```
+</CodeGroup>
+
+**Errors:**
+- `ChannelSectionNotFoundError` - Section doesn't exist
+- `UnauthorizedError` - User lacks admin permission
+- `InternalServerError` - Unexpected server error
+
+---
+
+### channelSection.delete
+
+Deletes a channel section (soft delete). When a section is deleted, all channels in that section are moved to the default section (sectionId = null). Only organization admins/owners can delete sections.
+
+<ParamField path="id" type="string" required>
+  Section ID to delete
+</ParamField>
+
+<ResponseField name="transactionId" type="string">
+  Transaction ID for optimistic updates
+</ResponseField>
+
+<CodeGroup>
+```typescript Example
+const result = await client.channelSection.delete({
+  id: "cs-abc123"
+});
+```
+
+```typescript Response
+{
+  transactionId: "txn-xyz789"
+}
+```
+</CodeGroup>
+
+**Note:** All channels in the deleted section are automatically moved to the default section.
+
+**Errors:**
+- `ChannelSectionNotFoundError` - Section doesn't exist
+- `UnauthorizedError` - User lacks admin permission
+- `InternalServerError` - Unexpected server error
+
+---
+
+### channelSection.reorder
+
+Reorders all sections in an organization. Takes an ordered array of section IDs and updates their order field accordingly. Only organization admins/owners can reorder sections.
+
+<ParamField path="organizationId" type="string" required>
+  Organization ID
+</ParamField>
+
+<ParamField path="sectionIds" type="string[]" required>
+  Ordered array of section IDs (from top to bottom)
+</ParamField>
+
+<ResponseField name="transactionId" type="string">
+  Transaction ID for optimistic updates
+</ResponseField>
+
+<CodeGroup>
+```typescript Example
+const result = await client.channelSection.reorder({
+  organizationId: "org-123",
+  sectionIds: [
+    "cs-abc123", // First
+    "cs-def456", // Second
+    "cs-ghi789"  // Third
+  ]
+});
+```
+
+```typescript Response
+{
+  transactionId: "txn-xyz789"
+}
+```
+</CodeGroup>
+
+**Errors:**
+- `UnauthorizedError` - User lacks admin permission
+- `InternalServerError` - Unexpected server error
+
+---
+
+### channelSection.moveChannel
+
+Moves a channel to a different section. Set sectionId to null to move channel back to the default section. Only organization admins/owners can move channels between sections.
+
+<ParamField path="channelId" type="string" required>
+  Channel ID to move
+</ParamField>
+
+<ParamField path="sectionId" type="string | null" required>
+  Target section ID, or null for default section
+</ParamField>
+
+<ResponseField name="transactionId" type="string">
+  Transaction ID for optimistic updates
+</ResponseField>
+
+<CodeGroup>
+```typescript Move to section
+const result = await client.channelSection.moveChannel({
+  channelId: "ch-abc123",
+  sectionId: "cs-engineering"
+});
+```
+
+```typescript Move to default
+const result = await client.channelSection.moveChannel({
+  channelId: "ch-abc123",
+  sectionId: null
+});
+```
+
+```typescript Response
+{
+  transactionId: "txn-xyz789"
+}
+```
+</CodeGroup>
+
+**Errors:**
+- `ChannelNotFoundError` - Channel doesn't exist
+- `ChannelSectionNotFoundError` - Section doesn't exist or belongs to different organization
+- `UnauthorizedError` - User lacks admin permission
+- `InternalServerError` - Unexpected server error
+
+## Complete Example
+
+<CodeGroup>
+```typescript Organization Setup
+// Create sections
+const engineering = await client.channelSection.create({
+  name: "Engineering",
+  organizationId: "org-123",
+  order: 0
+});
+
+const marketing = await client.channelSection.create({
+  name: "Marketing",
+  organizationId: "org-123",
+  order: 0
+});
+
+// Create channels
+const backend = await client.channel.create({
+  name: "backend",
+  type: "public",
+  organizationId: "org-123"
+});
+
+const frontend = await client.channel.create({
+  name: "frontend",
+  type: "public",
+  organizationId: "org-123"
+});
+
+// Organize channels into sections
+await client.channelSection.moveChannel({
+  channelId: backend.data.id,
+  sectionId: engineering.data.id
+});
+
+await client.channelSection.moveChannel({
+  channelId: frontend.data.id,
+  sectionId: engineering.data.id
+});
+
+// Reorder sections
+await client.channelSection.reorder({
+  organizationId: "org-123",
+  sectionIds: [engineering.data.id, marketing.data.id]
+});
+```
+</CodeGroup>

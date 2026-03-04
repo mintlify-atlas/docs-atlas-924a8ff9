@@ -1,0 +1,360 @@
+---
+title: "Channels API"
+description: "Create and manage channels in your organization"
+---
+
+## Overview
+
+The Channels API allows you to create, update, and delete channels in your organization. Channels can be public, private, direct messages (DMs), group messages, or threads.
+
+All channel operations require authentication and appropriate permissions.
+
+## Channel Types
+
+- **public** - Visible to all organization members
+- **private** - Only visible to invited members
+- **direct** - Group direct message with multiple participants
+- **single** - One-on-one direct message between two users
+- **thread** - Conversation thread attached to a message
+
+## Methods
+
+### channel.create
+
+Creates a new channel in an organization. The current user is automatically added as a member of the channel.
+
+<ParamField path="name" type="string" required>
+  Channel name
+</ParamField>
+
+<ParamField path="type" type="ChannelType" required>
+  Channel type: `public`, `private`, `thread`, `direct`, or `single`
+</ParamField>
+
+<ParamField path="organizationId" type="string" required>
+  UUID of the organization
+</ParamField>
+
+<ParamField path="icon" type="string | null">
+  Channel icon/emoji
+</ParamField>
+
+<ParamField path="parentChannelId" type="string | null">
+  Parent channel ID (for threads)
+</ParamField>
+
+<ParamField path="sectionId" type="string | null">
+  Section ID to organize the channel
+</ParamField>
+
+<ParamField path="id" type="string">
+  Optional client-provided ID for optimistic updates
+</ParamField>
+
+<ParamField path="addAllMembers" type="boolean">
+  If true, automatically adds all organization members to the channel
+</ParamField>
+
+<ResponseField name="data" type="Channel">
+  <Expandable title="Channel object">
+    <ResponseField name="id" type="string">
+      Channel ID
+    </ResponseField>
+    <ResponseField name="name" type="string">
+      Channel name
+    </ResponseField>
+    <ResponseField name="type" type="ChannelType">
+      Channel type
+    </ResponseField>
+    <ResponseField name="icon" type="string | null">
+      Channel icon/emoji
+    </ResponseField>
+    <ResponseField name="organizationId" type="string">
+      Organization ID
+    </ResponseField>
+    <ResponseField name="parentChannelId" type="string | null">
+      Parent channel ID (for threads)
+    </ResponseField>
+    <ResponseField name="sectionId" type="string | null">
+      Section ID
+    </ResponseField>
+    <ResponseField name="createdAt" type="string">
+      ISO 8601 timestamp
+    </ResponseField>
+    <ResponseField name="deletedAt" type="string | null">
+      ISO 8601 timestamp if soft-deleted
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="transactionId" type="string">
+  Transaction ID for optimistic updates
+</ResponseField>
+
+<CodeGroup>
+```typescript Example
+const result = await client.channel.create({
+  name: "General",
+  type: "public",
+  organizationId: "org-123",
+  icon: "💬",
+  addAllMembers: true
+});
+```
+
+```typescript Response
+{
+  data: {
+    id: "ch-abc123",
+    name: "General",
+    type: "public",
+    icon: "💬",
+    organizationId: "org-123",
+    parentChannelId: null,
+    sectionId: null,
+    createdAt: "2024-03-15T10:00:00Z",
+    deletedAt: null
+  },
+  transactionId: "txn-xyz789"
+}
+```
+</CodeGroup>
+
+**Errors:**
+- `UnauthorizedError` - User lacks permission to create channels
+- `InternalServerError` - Unexpected server error
+
+---
+
+### channel.update
+
+Updates an existing channel. Only users with appropriate permissions can update a channel.
+
+<ParamField path="id" type="string" required>
+  Channel ID to update
+</ParamField>
+
+<ParamField path="name" type="string">
+  New channel name
+</ParamField>
+
+<ParamField path="icon" type="string | null">
+  New channel icon/emoji
+</ParamField>
+
+<ParamField path="sectionId" type="string | null">
+  Move channel to a different section
+</ParamField>
+
+<ResponseField name="data" type="Channel">
+  Updated channel object (see channel.create for structure)
+</ResponseField>
+
+<ResponseField name="transactionId" type="string">
+  Transaction ID for optimistic updates
+</ResponseField>
+
+<CodeGroup>
+```typescript Example
+const result = await client.channel.update({
+  id: "ch-abc123",
+  name: "General Discussion",
+  icon: "💬"
+});
+```
+</CodeGroup>
+
+**Errors:**
+- `ChannelNotFoundError` - Channel doesn't exist
+- `UnauthorizedError` - User lacks permission to update channel
+- `InternalServerError` - Unexpected server error
+
+---
+
+### channel.delete
+
+Deletes a channel (soft delete). Only users with appropriate permissions can delete a channel.
+
+<ParamField path="id" type="string" required>
+  Channel ID to delete
+</ParamField>
+
+<ResponseField name="transactionId" type="string">
+  Transaction ID for optimistic updates
+</ResponseField>
+
+<CodeGroup>
+```typescript Example
+const result = await client.channel.delete({
+  id: "ch-abc123"
+});
+```
+
+```typescript Response
+{
+  transactionId: "txn-xyz789"
+}
+```
+</CodeGroup>
+
+**Errors:**
+- `ChannelNotFoundError` - Channel doesn't exist
+- `UnauthorizedError` - User lacks permission to delete channel
+- `InternalServerError` - Unexpected server error
+
+---
+
+### channel.createDm
+
+Creates a direct message or group channel with specified participants. For single DMs, automatically checks if a DM already exists between users. All participants are automatically added as channel members.
+
+<ParamField path="participantIds" type="string[]" required>
+  Array of user IDs to include in the DM (excluding yourself)
+</ParamField>
+
+<ParamField path="type" type="'direct' | 'single'" required>
+  - `single` - One-on-one DM (must have exactly 1 participant)
+  - `direct` - Group DM (can have multiple participants)
+</ParamField>
+
+<ParamField path="organizationId" type="string" required>
+  UUID of the organization
+</ParamField>
+
+<ParamField path="name" type="string">
+  Optional custom name for the DM channel (auto-generated for single DMs)
+</ParamField>
+
+<ResponseField name="data" type="Channel">
+  Created DM channel object
+</ResponseField>
+
+<ResponseField name="transactionId" type="string">
+  Transaction ID for optimistic updates
+</ResponseField>
+
+<CodeGroup>
+```typescript Single DM
+const result = await client.channel.createDm({
+  participantIds: ["user-456"],
+  type: "single",
+  organizationId: "org-123"
+});
+// Creates a DM named "Alice Smith, Bob Jones"
+```
+
+```typescript Group DM
+const result = await client.channel.createDm({
+  participantIds: ["user-456", "user-789"],
+  type: "direct",
+  organizationId: "org-123",
+  name: "Project Team"
+});
+```
+</CodeGroup>
+
+**Errors:**
+- `DmChannelAlreadyExistsError` - DM already exists (for single type)
+- `UnauthorizedError` - User lacks permission
+- `InternalServerError` - Unexpected server error or invalid participant count
+
+---
+
+### channel.createThread
+
+Ensures a thread channel exists for a message and returns it. If a thread already exists, it is returned. Otherwise this atomically creates the thread channel, adds the creator as a member, and links the original message to the thread.
+
+<ParamField path="messageId" type="string" required>
+  ID of the message to create a thread for
+</ParamField>
+
+<ParamField path="organizationId" type="string">
+  Optional organization ID (must match message's parent channel organization)
+</ParamField>
+
+<ParamField path="id" type="string">
+  Optional client-provided channel ID for optimistic updates
+</ParamField>
+
+<ResponseField name="data" type="Channel">
+  Thread channel object
+</ResponseField>
+
+<ResponseField name="transactionId" type="string">
+  Transaction ID for optimistic updates
+</ResponseField>
+
+<CodeGroup>
+```typescript Example
+const result = await client.channel.createThread({
+  messageId: "msg-abc123"
+});
+```
+
+```typescript Response
+{
+  data: {
+    id: "ch-thread-xyz",
+    name: "Thread",
+    type: "thread",
+    icon: null,
+    organizationId: "org-123",
+    parentChannelId: "ch-abc123",
+    sectionId: null,
+    createdAt: "2024-03-15T10:00:00Z",
+    deletedAt: null
+  },
+  transactionId: "txn-xyz789"
+}
+```
+</CodeGroup>
+
+**Errors:**
+- `MessageNotFoundError` - Message doesn't exist
+- `NestedThreadError` - Cannot create thread from a message that's already in a thread
+- `UnauthorizedError` - User lacks permission
+- `InternalServerError` - Unexpected server error
+
+---
+
+### channel.generateName
+
+Generates an AI-powered name for a thread channel. Uses the ThreadNamingWorkflow to analyze the thread conversation and generate a descriptive 3-6 word name.
+
+<ParamField path="channelId" type="string" required>
+  Thread channel ID to generate a name for
+</ParamField>
+
+<ResponseField name="success" type="boolean">
+  Whether the name generation was initiated successfully
+</ResponseField>
+
+<CodeGroup>
+```typescript Example
+const result = await client.channel.generateName({
+  channelId: "ch-thread-xyz"
+});
+```
+
+```typescript Response
+{
+  success: true
+}
+```
+</CodeGroup>
+
+**Note:** This operation is asynchronous. The thread name will be updated in the background via a workflow.
+
+**Errors:**
+- `ChannelNotFoundError` - Channel doesn't exist or is not a thread
+- `MessageNotFoundError` - Original message not found
+- `UnauthorizedError` - User lacks permission
+- `WorkflowServiceUnavailableError` - Cannot connect to workflow service
+- `ThreadChannelNotFoundError` - Thread channel not found in workflow
+- `OriginalMessageNotFoundError` - Original message not found in workflow
+- `ThreadContextQueryError` - Database query failed in workflow
+- `AIProviderUnavailableError` - AI service is unreachable
+- `AIRateLimitError` - AI service rate limit exceeded
+- `AIResponseParseError` - AI response cannot be parsed
+- `ThreadNameUpdateError` - Database update failed in workflow
+- `InternalServerError` - Unexpected server error
